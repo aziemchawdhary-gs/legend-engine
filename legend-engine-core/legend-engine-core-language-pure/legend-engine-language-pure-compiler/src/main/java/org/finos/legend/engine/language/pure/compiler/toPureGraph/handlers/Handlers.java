@@ -1315,6 +1315,7 @@ public class Handlers
         register("meta::pure::functions::string::toLower_String_1__String_1_", true, ps -> res("String", "one"));
         register("meta::pure::functions::string::toString_Any_1__String_1_", true, ps -> res("String", "one"));
         register("meta::pure::functions::string::toUpper_String_1__String_1_", true, ps -> res("String", "one"));
+        register("meta::pure::functions::string::toUpperFirstCharacter_String_MANY__String_MANY_", false, ps -> res("String", "zeroMany"));
         register("meta::pure::functions::string::trim_String_1__String_1_", true, ps -> res("String", "one"));
         register("meta::pure::functions::string::ltrim_String_1__String_1_", true, ps -> res("String", "one"));
         register("meta::pure::functions::string::rtrim_String_1__String_1_", true, ps -> res("String", "one"));
