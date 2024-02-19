@@ -26,6 +26,7 @@ import org.finos.legend.engine.language.pure.grammar.to.PureGrammarComposerConte
 import org.finos.legend.engine.language.pure.grammar.to.extension.PureGrammarComposerExtension;
 import org.finos.legend.engine.protocol.bigqueryFunction.metamodel.BigQueryFunction;
 import org.finos.legend.engine.protocol.bigqueryFunction.metamodel.BigQueryFunctionDeploymentConfiguration;
+import org.finos.legend.engine.protocol.functionActivator.metamodel.DeploymentOwner;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.PackageableElement;
 
 import java.util.Collections;
@@ -36,6 +37,12 @@ import static org.finos.legend.engine.language.pure.grammar.to.PureGrammarCompos
 
 public class BigQueryFunctionGrammarComposer implements PureGrammarComposerExtension
 {
+    @Override
+    public String group()
+    {
+        return "FA_BigQuery";
+    }
+
     private MutableList<Function2<PackageableElement, PureGrammarComposerContext, String>> renderers = org.eclipse.collections.impl.factory.Lists.mutable.with((element, context) ->
     {
         if (element instanceof BigQueryFunction)
@@ -74,7 +81,7 @@ public class BigQueryFunctionGrammarComposer implements PureGrammarComposerExten
                 "{\n" +
                 "   functionName : '" + app.functionName + "';\n" +
                 "   function : " + app.function.path + ";\n" +
-                (app.owner == null ? "" : "   owner : '" + app.owner + "';\n") +
+                "   ownership : Deployment { identifier: '" + ((DeploymentOwner)app.ownership).id + "' };\n" +
                 (app.description == null ? "" : "   description : '" + app.description + "';\n") +
                 (app.activationConfiguration == null ? "" : "   activationConfiguration : " + ((BigQueryFunctionDeploymentConfiguration) app.activationConfiguration).activationConnection.connection + ";\n") +
                 "}";
