@@ -396,6 +396,8 @@ function meta::pure::graphFetch::calculateSourceTree(tree:RootGraphFetchTree<Any
    let rootSetImplementation = $tree->match([r:RoutedRootGraphFetchTree<Any>[1]|$r.sets->toOne(),
                                              r:RootGraphFetchTree<Any>[1]|$mapping->rootClassMappingByClass($replaced.class)]);
 
+   println($rootSetImplementation, 3);
+   //fail();
    assert($rootSetImplementation->isNotEmpty(), |'Mapping ' + $mapping->elementToPath() + ' does not map class from tree: ' + $replaced.class->elementToPath());
 
    $rootSetImplementation->toOne()->match($extensions.graphExtension_calculateSourceTree->map(ext | $ext->eval($replaced))->concatenate([
@@ -590,6 +592,12 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPrope
 
 function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNode(srcNode:GraphFetchTree[1], setImplementation: PureInstanceSetImplementation[1], tgtNode:GraphFetchTree[1], extensions:meta::pure::extension::Extension[*]): GraphFetchTree[1]
 {
+  println('enrichSourceTreeNode');
+  println('set implementation:');
+  println($setImplementation);
+
+  println('tgtNode');
+  println($tgtNode);
    let setContainsExplodeProperty = $setImplementation.propertyMappings->filter(pm|if($pm->instanceOf(PurePropertyMapping),| $pm->cast(@PurePropertyMapping).explodeProperty->isTrue(), |false))->isNotEmpty();
    let subTreeProperties          = $tgtNode.subTrees->cast(@PropertyGraphFetchTree).property.name;
    let requiredTgtSubTrees        = $tgtNode.subTrees->cast(@PropertyGraphFetchTree)->concatenate(if($setContainsExplodeProperty,
@@ -637,6 +645,21 @@ function <<access.private>> meta::pure::graphFetch::addPassThroughSubTreesAtPath
       | ^$srcNode(subTrees=$srcNode.subTrees->cast(@PropertyGraphFetchTree)->map(st|if($st.property == $head.property, |$st->addPassThroughSubTrees($tgtPgft, $extensions), |$st))),
       | ^$srcNode(subTrees=$srcNode.subTrees->cast(@PropertyGraphFetchTree)->map(st|if($st.property == $head.property, |$st->addPassThroughSubTreesAtPath(list($tail), $tgtPgft, $extensions), |$st)))
    );
+}
+
+function meta::pure::graphFetch::findSubTreeWithOwner(pTree:PropertyPathTree[1], ownerClass:Class<Any>[1]) : PropertyPathTree[*]
+{
+  $pTree.value->match([
+    node:PropertyPathNode[1] | if($ownerClass == $node.class || $node.class->isStrictSubType($ownerClass),
+                                  | $pTree,
+                                  | $pTree.children->map(ch | findSubTreeWithOwner($ch, $ownerClass))
+                                ),
+    clz:Class<Any>[1] | if($clz == $ownerClass || $ownerClass->isStrictSubType($clz),
+                          | $pTree,
+                          | $pTree.children->map(ch | findSubTreeWithOwner($ch, $ownerClass))
+                        ),
+    any:Any[1] | $pTree.children->map(ch | findSubTreeWithOwner($ch, $ownerClass))
+  ]);
 }
 
 function meta::pure::graphFetch::propertyTreeToGraphFetchTree(pTree:PropertyPathTree[1], ownerClass:Class<Any>[1]): RootGraphFetchTree<Any>[1]
