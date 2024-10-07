@@ -111,6 +111,11 @@ Class meta::pure::executionPlan::PureExpressionPlatformExecutionNode extends met
    expression : ValueSpecification[1];
 }
 
+Class meta::pure::executionPlan::ProjectExecutionNode extends meta::pure::executionPlan::PureExpressionPlatformExecutionNode
+{
+  rowLimit : Integer[0..1];
+}
+
 Class meta::pure::executionPlan::PlatformUnionExecutionNode extends meta::pure::executionPlan::ExecutionNode
 {
   isChildrenExecutionParallelizable : Boolean[0..1];

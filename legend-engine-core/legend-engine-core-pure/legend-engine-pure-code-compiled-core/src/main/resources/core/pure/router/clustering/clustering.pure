@@ -22,7 +22,7 @@ function meta::pure::router::clustering::recursivelyFetchClusteredValueSpecifica
       r:RoutedValueSpecification[1]           | $r.value->recursivelyFetchClusteredValueSpecification($recurseWithinCluster),
       c:ClusteredValueSpecification[*]        | let childCluster = if($recurseWithinCluster, |$c.val->map(v | $v->recursivelyFetchClusteredValueSpecification($recurseWithinCluster)), |[]);
                                                 $c->concatenate($childCluster);,
-      i:InstanceValue[1]                      | [],
+      i:InstanceValue[1]                      | $i.values->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->map(v | $v->recursivelyFetchClusteredValueSpecification($recurseWithinCluster)),
       v:VariableExpression[1]                 | [],
       fvs:FunctionRoutedValueSpecification[1] | $fvs.value->recursivelyFetchClusteredValueSpecification($recurseWithinCluster)
    ]);

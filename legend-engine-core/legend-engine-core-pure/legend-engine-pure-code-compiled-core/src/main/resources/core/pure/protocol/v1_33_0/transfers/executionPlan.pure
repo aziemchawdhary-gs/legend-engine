@@ -49,6 +49,13 @@ function meta::protocols::pure::v1_33_0::transformation::fromPureGraph::executio
                connection = $rel.connection->cast(@meta::external::store::model::ModelConnection)->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::connection::transformModelConnection(),
                pureModelContextData = $rel.mapping->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::buildBasePureModelFromMapping( {m:meta::pure::mapping::Mapping[1], p:	meta::protocols::Protocol[1] |[]}, $extensions).second
          ),
+         project:meta::pure::executionPlan::ProjectExecutionNode[1]|
+            ^meta::protocols::pure::v1_33_0::metamodel::executionPlan::ProjectExecutionNode(
+              _type='project',
+              resultType=$project.resultType->transformResultType($mapping, $extensions),
+              rowLimit = $project.rowLimit,
+              pure = $project.expression->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::valueSpecification::transformValueSpecification([], newMap([]->cast(@Pair<String, List<Any>>)), $extensions)
+            ),
          platform:meta::pure::executionPlan::PureExpressionPlatformExecutionNode[1]|
             ^meta::protocols::pure::v1_33_0::metamodel::executionPlan::PureExpressionPlatformExecutionNode(
                _type='pureExp',

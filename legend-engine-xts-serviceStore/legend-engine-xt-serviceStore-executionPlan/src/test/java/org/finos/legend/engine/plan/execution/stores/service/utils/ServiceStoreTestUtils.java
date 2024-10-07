@@ -17,6 +17,7 @@ package org.finos.legend.engine.plan.execution.stores.service.utils;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.Maps;
 import org.eclipse.collections.api.list.MutableList;
+import org.eclipse.collections.api.map.MutableMap;
 import org.eclipse.collections.impl.utility.ListIterate;
 import org.finos.legend.engine.language.pure.compiler.Compiler;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.HelperValueSpecificationBuilder;
@@ -25,8 +26,10 @@ import org.finos.legend.engine.language.pure.grammar.from.PureGrammarParser;
 import org.finos.legend.engine.plan.execution.PlanExecutor;
 import org.finos.legend.engine.plan.execution.result.ConstantResult;
 import org.finos.legend.engine.plan.execution.result.Result;
+import org.finos.legend.engine.plan.execution.result.TDSResult;
 import org.finos.legend.engine.plan.execution.result.json.JsonStreamToJsonDefaultSerializer;
 import org.finos.legend.engine.plan.execution.result.json.JsonStreamingResult;
+import org.finos.legend.engine.plan.execution.result.serialization.TDSResultToPureTDSToObjectSerializer;
 import org.finos.legend.engine.plan.execution.stores.inMemory.plugin.InMemory;
 import org.finos.legend.engine.plan.execution.stores.service.plugin.ServiceStoreExecutorBuilder;
 import org.finos.legend.engine.plan.generation.PlanGenerator;
@@ -129,5 +132,17 @@ public class ServiceStoreTestUtils
         Identity identity = Identity.makeIdentity(Lists.mutable.with(new KerberosProfile(LocalCredentials.INSTANCE)));
         JsonStreamingResult result = (JsonStreamingResult) planExecutor.execute(singleExecutionPlan, vars, (String) null, identity, null);
         return result.flush(new JsonStreamToJsonDefaultSerializer(result));
+    }
+
+    public static String executePlanProject(SingleExecutionPlan plan, Map<String, ?> params)
+    {
+        SingleExecutionPlan singleExecutionPlan = plan.getSingleExecutionPlan(params);
+
+        Map<String, Object> vars = org.eclipse.collections.impl.factory.Maps.mutable.ofInitialCapacity(params.size());
+        params.forEach((key, value) -> vars.put(key, new ConstantResult(value)));
+        Identity identity = Identity.makeIdentity(Lists.mutable.with(new KerberosProfile(LocalCredentials.INSTANCE)));
+
+        TDSResult result = (TDSResult) planExecutor.execute(singleExecutionPlan, vars, (String) null, identity, null);
+        return result.flush(new TDSResultToPureTDSToObjectSerializer(result));
     }
 }

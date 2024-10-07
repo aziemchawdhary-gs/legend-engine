@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import meta::pure::runtime::*;
 import meta::pure::router::store::routing::*;
 import meta::pure::lineage::scanProperties::*;
 import meta::pure::milestoning::*;
@@ -459,12 +460,14 @@ function meta::pure::graphFetch::routing::routePropertyGraphFetchTree(prop: Prop
    let dummyLambda = {|'ok'};
    let cls = $functionExpression.genericType.rawType->toOne()->cast(@Class<Any>);
    // TODO Only allow no mapping routing for expanded (sub)trees
-
-   let routedFunctions = ^$dummyLambda(expressionSequence = $propertyApplicationExporession)->routeFunction(getRoutingStrategyFromMappingAndRuntime($mapping, ^Runtime(), $extensions), ^meta::pure::runtime::ExecutionContext(), [], true, $extensions, noDebug())->evaluateAndDeactivate();
+   let enrichedExpressions = meta::pure::router::routing::enrichFunctionExpressions($propertyApplicationExporession, meta::pure::router::store::routing::getRoutingStrategyFromMappingAndRuntime($mapping,^Runtime()), ^ExecutionContext(), newMap([]->cast(@Pair<String, List<Any>>)), $extensions, noDebug());
+  
+   let routedFunctions = $enrichedExpressions->map(exp | $exp->enrichExpressionWithStrategyBasedEnrichment(^ExecutionContext(),$extensions,noDebug()));
+  //  let routedFunctions = ^$dummyLambda(expressionSequence = $propertyApplicationExporession)->routeFunction(getRoutingStrategyFromMappingAndRuntime($mapping, ^Runtime(), $extensions), ^meta::pure::runtime::ExecutionContext(), [], true, $extensions, noDebug())->evaluateAndDeactivate();
 
    if($routedFunctions->isNotEmpty(),
       |  let routedFunction = $routedFunctions->toOne();
-         let ext = $routedFunction.expressionSequence->evaluateAndDeactivate()->toOne()->cast(@StoreMappingClusteredValueSpecification).val->evaluateAndDeactivate();
+         let ext = $routedFunction->evaluateAndDeactivate()->toOne();
          let propertyMappingInfo = $prop->meta::pure::graphFetch::routing::propertyMappingInfo($ext, $mapping);
          ^RoutedPropertyGraphFetchTree
           (

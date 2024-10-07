@@ -45,6 +45,7 @@ import java.util.List;
         @JsonSubTypes.Type(value = PureExpressionPlatformExecutionNode.class, name = "pureExp"),
         @JsonSubTypes.Type(value = PlatformUnionExecutionNode.class, name = "platformUnion"),
         @JsonSubTypes.Type(value = PlatformMergeExecutionNode.class, name = "platformMerge"),
+        @JsonSubTypes.Type(value = ProjectExecutionNode.class, name = "project"),
         @JsonSubTypes.Type(value = SequenceExecutionNode.class, name = "sequence"),
         @JsonSubTypes.Type(value = AggregationAwareExecutionNode.class, name = "aggregationAware"),
         @JsonSubTypes.Type(value = FunctionParametersValidationNode.class, name = "function-parameters-validation"),

@@ -22,8 +22,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import static org.finos.legend.engine.plan.execution.stores.service.utils.ServiceStoreTestUtils.buildPlanForQuery;
-import static org.finos.legend.engine.plan.execution.stores.service.utils.ServiceStoreTestUtils.executePlan;
+import static org.finos.legend.engine.plan.execution.stores.service.utils.ServiceStoreTestUtils.*;
 
 public class ServiceStoreJsonShowcaseTest extends ServiceStoreTestSuite
 {
@@ -72,6 +71,24 @@ public class ServiceStoreJsonShowcaseTest extends ServiceStoreTestSuite
         String expectedRes = "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"s_tradeId\":\"1\",\"s_traderDetails\":\"abc:F_Name_1:L_Name_1\",\"s_tradeDetails\":\"30:100\"},{\"s_tradeId\":\"2\",\"s_traderDetails\":\"abc:F_Name_1:L_Name_1\",\"s_tradeDetails\":\"31:200\"},{\"s_tradeId\":\"3\",\"s_traderDetails\":\"abc:F_Name_2:L_Name_2\",\"s_tradeDetails\":\"30:300\"},{\"s_tradeId\":\"4\",\"s_traderDetails\":\"abc:F_Name_2:L_Name_2\",\"s_tradeDetails\":\"31:400\"}]}";
 
         Assert.assertEquals(expectedRes, executePlan(plan));
+    }
+
+    @Test
+    public void simpleStoreSimpleProjectExample()
+    {
+        String query = "###Pure\n" +
+                "function showcase::query():Any[1]\n"+
+                "{\n"+
+                "   {|meta::external::store::service::showcase::domain::S_Trade.all()" +
+                "     ->project([s | $s.s_tradeId, s | $s.s_traderDetails], ['s_tradeId, 's_traderDetails'])->take(3)" +
+                "   };\n"+
+                "}";
+
+        SingleExecutionPlan plan = buildPlanForQuery(pureGrammar + "\n\n" + query);
+
+        String expectedRes = "";
+        Assert.assertEquals(expectedRes, executePlanProject(plan, Maps.mutable.empty()));
+
     }
 
     @Test

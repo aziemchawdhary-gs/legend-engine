@@ -1,0 +1,96 @@
+import meta::external::language::java::factory::project::*;
+import meta::pure::executionPlan::platformBinding::legendJava::shared::naming::*;
+import meta::external::language::java::factory::*;
+import meta::external::language::java::metamodel::*;
+import meta::external::language::java::transform::*;
+import meta::pure::executionPlan::platformBinding::legendJava::shared::*;
+import meta::pure::executionPlan::platformBinding::legendJava::*;
+import meta::pure::executionPlan::*;
+function meta::pure::executionPlan::platformBinding::legendJava::platform::project::generateImplementationForProjectNode(p:ProjectExecutionNode[1], path:String[1], context:GenerationContext[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1]):GeneratedCode[1]
+{
+  let conventions = $context.conventions;
+
+  let params = $p.expression->cast(@FunctionExpression).parametersValues;
+
+  let inputType = $params->at(0).genericType.rawType->cast(@meta::pure::metamodel::type::Class<Any>)->toOne();
+  let columns = $params->at(2)->cast(@InstanceValue).values->cast(@String);
+  let funcs = $params->at(1)->cast(@InstanceValue).values->map( v | if($v->instanceOf(InstanceValue), 
+                                                                        | $v->cast(@InstanceValue).values,
+                                                                        | $v
+                                                                    ))->cast(@FunctionDefinition<Any>)->map(fd | let paramName = $fd->functionType().parameters.name->toOne();
+                                                                                                                 $fd->reprocessVariableExpressionsNameInLambda(newMap(pair($paramName, 'instance'))).expressionSequence;
+                                                                                                            );
+
+  let nodeContext = iExecutionNodeContextParam($conventions);
+  let requiredVariableInputs = $p.requiredVariableInputs->removeDuplicates()
+                                                        ->map(s | let javaType = pureTypeToJavaType($conventions, $s.type, $s.multiplicity);
+                                                                  let typeArg = if($javaType->isJavaList(), | $nodeContext->j_invoke('listType', $javaType->elementType()->toBoxed()->j_classField()), | $javaType->toBoxed()->j_classField());
+                                                                  j_variable($javaType, $s.name)->j_declare($nodeContext->j_invoke('getResult', [j_string($s.name), $typeArg], javaObject())););
+
+  let declares = zip($columns, $funcs)->map(p | let javaType = pureTypeToJavaType($conventions, $p.second.genericType.rawType->toOne(), ZeroMany);
+                                                let variable = j_variable($javaType, meta::external::format::shared::utils::purifyPropertyName($p.first));
+                                                let value = $p.second->generateJava($conventions, $debug);
+                                                let listValue = if($p.second.multiplicity->hasToOneUpperBound(),
+                                                                    | javaCollections()->j_invoke('singletonList', $value, $javaType),
+                                                                    | j_conditional($value->j_invoke('isEmpty',[], javaBoolean()), javaCollections()->j_invoke('singletonList', j_null(), $javaType), $value));
+                                                $variable->j_declare($listValue););
+  
+  let indexedColumns = $columns->toIndexed();
+  let sizeDeclares = $indexedColumns->map(cp | j_variable(javaInt(), 'Column' + $cp.first->toString() + 'Size')->j_declare(j_variable(javaList(), meta::external::format::shared::utils::purifyPropertyName($cp.second))->j_invoke('size', [], javaInt())));
+  let sizeAfterExplosionVar = j_variable(javaInt(), 'sizeAfterExplosion');
+  let sizeAfterExplosionVarDeclare = $sizeAfterExplosionVar->j_declare($indexedColumns->map(cp | j_variable(javaInt(), 'Column' + $cp.first->toString() + 'Size'))->toOneMany()->j_multiply());
+
+  let resultVar = j_variable(javaList(javaMap(javaString(), javaObject())), 'result');
+  let resultVarDeclare = $resultVar->j_declare(javaArrayList(javaMap(javaString(), javaObject()))->j_new($sizeAfterExplosionVar));
+  let i = j_variable(javaInt(),'i');
+  let resultVarInitialize = j_for($i->j_declare(j_int(0)), $i->j_lt($sizeAfterExplosionVar), $i->j_inc(),
+                              [$resultVar->j_invoke('add', j_new(javaHashMap(javaString(), javaObject()), []), javaVoid())]
+                            );
+  let rowMapVar = j_variable(javaMap(javaString(), javaObject()), 'rowMap');
+  let currentRowIndexVar = j_variable(javaInt(), 'currentRowIndex');
+  let currentRowIndexVarDeclare = $currentRowIndexVar->j_declare(j_int(0));
+
+  let loopBody = $rowMapVar->j_declare($resultVar->j_invoke('get', $currentRowIndexVar, javaMap(javaString(), javaObject())))
+                  ->concatenate($indexedColumns->map(cp | $rowMapVar->j_invoke('put', [j_string($cp.second), j_variable(javaList(), meta::external::format::shared::utils::purifyPropertyName($cp.second))->j_invoke('get', j_variable(javaInt(), 'i'+$cp.first->toString()), javaObject())])))
+                  ->concatenate($currentRowIndexVar->j_inc())
+                  ->j_block();
+
+  let resultVarPopulate = $indexedColumns->fold({cp, state | let iCur = j_variable(javaInt(), 'i' + $cp.first->toString());
+                                                             j_for($iCur->j_declare(j_int(0)), $iCur->j_lt(j_variable(javaInt(), 'Column' + $cp.first->toString() + 'Size')), $iCur->j_inc(), $state);
+                                                }, $loopBody);
+  let returnStatement = $resultVar->j_return();
+
+  let body = $requiredVariableInputs
+             ->concatenate($declares)
+             ->concatenate($sizeDeclares)
+             ->concatenate($sizeAfterExplosionVarDeclare)
+             ->concatenate($resultVarDeclare)
+             ->concatenate($resultVarInitialize)
+             ->concatenate($currentRowIndexVarDeclare)
+             ->concatenate($resultVarPopulate)
+             ->concatenate($returnStatement);
+
+  let classesUsed = $body->classesUsed();
+
+  let rootClass = $conventions->pureTypeToJavaType($inputType, PureOne);
+  let ifaceRaw = $conventions->className(IPlatformProjectExecutionNodeSpecifics);
+  let iface = javaParameterizedType($ifaceRaw, $rootClass);
+
+  let instanceParam = j_parameter($rootClass, 'instance');
+  let method = javaMethod('public', javaList(javaMap(javaString(), javaObject())), 'executeProject', [$instanceParam, $nodeContext], $body);
+
+  let execClass = $conventions->planNodeClass('public', $path, 'Execute')
+                    ->implements($iface)
+                    ->imports($classesUsed)
+                    ->imports($conventions->className(IPlatformProjectExecutionNodeSpecifics))
+                    ->imports($conventions->className(IExecutionNodeContext))
+                    ->addMethod($method);
+
+  generatedCode(mergeProjects(newProject()->addClass($execClass)->concatenate($body->dependencies()->resolveAndGetProjects())->toOneMany()), $execClass);
+
+
+
+
+
+
+}

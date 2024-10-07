@@ -227,6 +227,69 @@ function meta::pure::router::clustering::specializedFunctionExpressionClustering
                         executable = $params->evaluateAndDeactivate()->map(p|$p->match([c:StoreMappingClusteredValueSpecification[1]|$c.executable;, a:ValueSpecification[1]|[]]))->concatenate(false)->toOneMany()->or()));
         }
     ),
+    pair(fe:FunctionExpression[1] | $fe.func == project_K_MANY__Function_MANY__String_MANY__TabularDataSet_1_,
+        {f:FunctionExpression[1], mapping:Mapping[1], openVariables:Map<String, List<Any>>[1], exeCtx:meta::pure::runtime::ExecutionContext[1],  debug:DebugContext[1], analyticsDecision: AnalyticsDecision[0..1], extensions:meta::pure::extension::Extension[*] |
+          let params = $f.parametersValues->evaluateAndDeactivate();
+          let childClustersResponse = $params->map(v | $v->cluster($mapping, $openVariables, $exeCtx,  $debug, $analyticsDecision, $extensions));
+
+          let clusteredParams = $childClustersResponse.cluster->evaluateAndDeactivate();
+          let letFunctions = $childClustersResponse.letFunctions;
+          let childExecutables = $childClustersResponse.executableSetOperations;
+
+          let unique = getDistinctClusterVSByStore($clusteredParams->map(cp | $cp->recursivelyFetchClusteredValueSpecification(false)), $extensions);
+          if($unique->size() == 1 && $unique->at(0)->cast(@StoreMappingClusteredValueSpecification).s.supports->toOne()->eval($f->evaluateAndDeactivate()),
+            | let one = $unique->toOne();
+              print(if($debug.debug, | $f->evaluateAndDeactivate()->asString()->debug($debug.space+'Func Expression(merge): '), |''));
+              let res = ^$one(
+                            genericType = $f.genericType,
+                            multiplicity = $f.multiplicity,
+                            val = ^$f(parametersValues = $clusteredParams->evaluateAndDeactivate()->map(p|$p->match([c:StoreMappingClusteredValueSpecification[1]|$c.val, a:ValueSpecification[1]|$a]))),
+                            executable = $clusteredParams->evaluateAndDeactivate()->map(p|$p->match([c:StoreMappingClusteredValueSpecification[1]|$c.executable, a:ValueSpecification[1]|[]]))->concatenate(false)->toOneMany()->or() || $f.functionName == 'getAll'
+              );
+              print(if($debug.debug, | $res->evaluateAndDeactivate()->asString()->debug($debug.space+'~> '),|''));
+              ^ClusterResponse(cluster=$res, letFunctions=$letFunctions,executableSetOperations=$childExecutables);,
+            | print(if($debug.debug, | $f->evaluateAndDeactivate()->asString()->debug($debug.space+'Func Expression(non-unique: '+$unique->size()->toString()+'): '), | ''));
+
+              let collection = $params->at(0);
+              let sets = $collection->cast(@StoreMappingRoutedValueSpecification).sets;
+              let collectionClass = $collection->byPassRouterInfo().genericType.rawType->toOne()->cast(@Class<Any>);
+              let emptyTree = ^meta::pure::graphFetch::RootGraphFetchTree<Any>(class=$collectionClass);
+
+              let graphFetchTree = $params->at(1)->map(fn | let propertyPath = $fn->byPassValueSpecificationWrapper()->cast(@ValueSpecification)->meta::pure::lineage::scanProperties::scanProperties();
+                                                            $emptyTree->meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath($collectionClass, $propertyPath);)
+                                                 ->meta::pure::graphFetch::mergeSubTrees()->meta::pure::graphFetch::sortTree()->cast(@meta::pure::graphFetch::RootGraphFetchTree<Any>);
+              let routedGraphFetchTree = $graphFetchTree->meta::pure::graphFetch::routing::routeRootGraphFetchTree($sets->toOne('Multiple sets not supported with platform project. Sets found - ' + $sets->size()->toString()),$collection->cast(@StoreMappingRoutedValueSpecification).mapping,$exeCtx,$extensions);
+              let clusteredGraphFetchTree = $routedGraphFetchTree->meta::pure::graphFetch::routing::clusterRoutedGraphFetchTree([],$collection->cast(@StoreMappingRoutedValueSpecification).mapping,[],$openVariables,$exeCtx,$extensions,$debug);
+              let graphFetchFunction = ^SimpleFunctionExpression(
+                                          func = meta::pure::graphFetch::execution::graphFetch_T_MANY__RootGraphFetchTree_1__T_MANY_,
+                                          functionName = meta::pure::graphFetch::execution::graphFetch_T_MANY__RootGraphFetchTree_1__T_MANY_.name,
+                                          importGroup = system::imports::coreImport,
+                                          genericType = $collection->byPassRouterInfo().genericType,
+                                          multiplicity = $collection->byPassRouterInfo().multiplicity,
+                                          parametersValues = [
+                                            $collection, 
+                                            ^InstanceValue(values = $clusteredGraphFetchTree, multiplicity = PureOne, genericType = ^GenericType(rawType = meta::pure::graphFetch::RootGraphFetchTree, typeArguments = [$collection.genericType]))
+                                          ]
+                                        )->evaluateAndDeactivate();
+              
+              let clusterForGraphFetch = $clusteredParams->at(0)->cast(@ClusteredValueSpecification);
+              let clusteredGraphFetch = ^$clusterForGraphFetch(genericType = $graphFetchFunction.genericType,
+                                                               multiplicity = $graphFetchFunction.multiplicity,
+                                                               val = $graphFetchFunction,
+                                                               executable = $clusteredParams->evaluateAndDeactivate()->map(p|$p->match([c:StoreMappingClusteredValueSpecification[1]|$c.executable, a:ValueSpecification[1]|[]]))->concatenate(false)->toOneMany()->or()
+                                                              );
+              ^ClusterResponse(cluster=^PlatformClusteredValueSpecification(
+                                          genericType = $f.genericType,
+                                          multiplicity = $f.multiplicity,
+                                          openVars = $openVariables,
+                                          exeCtx = $exeCtx,
+                                          val = ^$f(parametersValues = $clusteredGraphFetch->concatenate($params->tail()->map(p | $p->meta::pure::router::utils::deepByPassRouterInfo()))->cast(@ValueSpecification)),
+                                          executable = true
+                                        ),
+                               letFunctions = $letFunctions,
+                               executableSetOperations = $childExecutables);
+              );
+        }),
     pair(fe:FunctionExpression[1] | $fe.func->in([agg_FunctionDefinition_1__FunctionDefinition_1__AggregateValue_1_,
                                                        agg_String_1__FunctionDefinition_1__FunctionDefinition_1__AggregateValue_1_,
                                                        col_Function_1__String_1__BasicColumnSpecification_1_,

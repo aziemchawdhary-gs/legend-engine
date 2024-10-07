@@ -41,6 +41,7 @@ Class meta::pure::executionPlan::platformBinding::legendJava::DataQualityConstra
 Class meta::pure::executionPlan::platformBinding::legendJava::IReferencedObject {}
 Class meta::pure::executionPlan::platformBinding::legendJava::IRelationalCreateAndPopulateTempTableExecutionNodeSpecifics {}
 Class meta::pure::executionPlan::platformBinding::legendJava::IPlatformPureExpressionExecutionNodeSerializeSpecifics {}
+Class meta::pure::executionPlan::platformBinding::legendJava::IPlatformProjectExecutionNodeSpecifics {}
 Class meta::pure::executionPlan::platformBinding::legendJava::ISerializationWriter {}
 Class meta::pure::executionPlan::platformBinding::legendJava::IGraphSerializer {}
 Class meta::pure::executionPlan::platformBinding::legendJava::IStoreStreamReadingExecutionNodeSpecifics {}
@@ -411,6 +412,9 @@ function meta::pure::executionPlan::platformBinding::legendJava::applyJavaEngine
 
    let jIPlatformPureExpressionExecutionNodeSerializeSpecifics = javaClass('public', 'org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeSerializeSpecifics')
       ->addMethod(javaMethod('public', javaParameterizedType($jIGraphSerializer, [javaWildcard()]), 'serializer', [javaParam($jISerializationWriter, 'p0'), javaParam($jIExecutionNodeContext, 'p1')]));
+
+   let jIPlatformProjectExecutionNodeSpecifics = javaClass('public', 'org.finos.legend.engine.plan.dependencies.store.platform.IPlatformProjectExecutionNodeSpecifics')
+      ->addMethod(javaMethod('public', javaList(javaParameterizedType(javaClass('java.util.Map'), [javaString(), javaObject()])), 'executeProject', [javaParam(javaTypeVar('T'), 'p0'), javaParam($jIExecutionNodeContext, 'p1')]));
 
    let jIStoreStreamReadingExecutionNodeContext = javaClass('public', 'org.finos.legend.engine.plan.dependencies.store.inMemory.IStoreStreamReadingExecutionNodeContext')
       ->addMethod(javaMethod('public', $jIStoreStreamReader, 'createReader', [javaParam(javaString(), 'p0')]))

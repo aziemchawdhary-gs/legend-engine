@@ -574,7 +574,9 @@ function meta::pure::functions::meta::reprocessVariableExpressionsName(v:ValueSp
                                   a:Any[1]|$a
                                ]))
                             ),
-      v: VariableExpression[1]| ^$v(name = if($nameMap->get($v.name)->isNotEmpty(), | $nameMap->get($v.name)->toOne(), | $v.name))
+      v: VariableExpression[1]| ^$v(name = if($nameMap->get($v.name)->isNotEmpty(), | $nameMap->get($v.name)->toOne(), | $v.name)),
+      c: ClusteredValueSpecification[1] | $c.val->reprocessVariableExpressionsName($nameMap),
+      r: RoutedValueSpecification[1] | $r.value->reprocessVariableExpressionsName($nameMap)
    ])
 }
 

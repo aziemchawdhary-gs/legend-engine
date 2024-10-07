@@ -1809,6 +1809,12 @@ function meta::external::language::java::factory::j_bitwiseNot(left:Code[1], rig
    ^InfixExpression(left=$left, op='~', right=$right, type=$left.type);
 }
 
+function meta::external::language::java::factory::j_plus(operands:Code[1..*]):Code[1]
+{
+   $operands->tail()->fold({n,a | ^InfixExpression(left=$a, op='+', right=$n, type=$a.type)},
+                          $operands->at(0));
+}
+
 function meta::external::language::java::factory::j_plus(left:Code[1], right:Code[1]):Code[1]
 {
    ^InfixExpression(left=$left, op='+', right=$right, type=$left.type);
@@ -1822,6 +1828,12 @@ function meta::external::language::java::factory::j_minus(left:Code[1], right:Co
 function meta::external::language::java::factory::j_minus(expression:Code[1]):Code[1]
 {
    ^PrefixExpression(op='-', expression=$expression, type=$expression.type);
+}
+
+function meta::external::language::java::factory::j_multiply(operands:Code[1..*]):Code[1]
+{
+   $operands->tail()->fold({n,a | ^InfixExpression(left=$a, op='*', right=$n, type=$a.type)},
+                          $operands->at(0));
 }
 
 function meta::external::language::java::factory::j_multiply(left:Code[1], right:Code[1]):Code[1]

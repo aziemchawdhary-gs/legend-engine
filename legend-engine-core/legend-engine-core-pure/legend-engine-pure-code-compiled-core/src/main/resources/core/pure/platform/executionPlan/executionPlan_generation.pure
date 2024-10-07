@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import meta::pure::router::utils::*;
 import meta::pure::executionPlan::*;
 import meta::pure::extension::*;
 import meta::pure::graphFetch::*;
@@ -26,6 +27,8 @@ Class meta::pure::platform::executionPlan::generation::PlatformPlanGenerationSta
 {
    inScopeVars     : Map<String, List<Any>>[1];
    exeCtx          : meta::pure::runtime::ExecutionContext[1];
+   tdsFilter       : FunctionDefinition<Any>[0..1];
+   limit           : Integer[0..1];
 }
 
 Class meta::pure::platform::executionPlan::generation::PureFunctionToProcessFunctionPair extends Pair<Function<Any>, Function<{FunctionExpression[1], PlatformPlanGenerationState[1], Extension[*], DebugContext[1] -> ExecutionNode[1]}>>
@@ -35,11 +38,12 @@ Class meta::pure::platform::executionPlan::generation::PureFunctionToProcessFunc
 function meta::pure::platform::executionPlan::generation::processValueSpecification(vs:ValueSpecification[1], state:PlatformPlanGenerationState[1], extensions : Extension[*], debug:DebugContext[1]):ExecutionNode[0..1]
 {
    $vs->match([
-      f:SimpleFunctionExpression[1]         | $f->getFunctionProcessor($extensions)->eval($f, $state, $extensions, $debug),
-      c:ClusteredValueSpecification[1]      | $c->plan($state.inScopeVars, $state.exeCtx, $extensions, $debug),
-      e:ExtendedRoutedValueSpecification[1] | $e.value->processValueSpecification($state, $extensions, $debug),
-      i:InstanceValue[1]                    | [],
-      v:ValueSpecification[1]               | []
+      f:SimpleFunctionExpression[1]            | $f->getFunctionProcessor($extensions)->eval($f, $state, $extensions, $debug),
+      p:PlatformClusteredValueSpecification[1] | $p.val->processValueSpecification($state, $extensions, $debug),
+      c:ClusteredValueSpecification[1]         | $c->plan($state.inScopeVars, $state.exeCtx, $extensions, $debug),
+      e:ExtendedRoutedValueSpecification[1]    | $e.value->processValueSpecification($state, $extensions, $debug),
+      i:InstanceValue[1]                       | [],
+      v:ValueSpecification[1]                  | []
    ]);
 }
 
@@ -119,6 +123,45 @@ function <<access.private>> meta::pure::platform::executionPlan::generation::let
    );
 }
 
+function <<access.private>> meta::pure::platform::executionPlan::generation::projectFunctionProcessor(fe:FunctionExpression[1], state:PlatformPlanGenerationState[1], extensions:Extension[*], debug:DebugContext[1]):ExecutionNode[1]
+{
+  let params = $fe.parametersValues->evaluateAndDeactivate();
+  let collection = $params->at(0);
+  let childNode = $collection->processValueSpecification($state,$extensions,$debug);
+
+  let substitute = ^InstanceValue(values=[], genericType=$collection.genericType, multiplicity=ZeroMany);
+  let tdsColumns = zip($params->at(1)->byPassValueSpecificationWrapper()->cast(@InstanceValue).values, $params->at(2)->byPassValueSpecificationWrapper()->cast(@InstanceValue).values)
+                    ->map(p | pair($p.first->map(f | if($f->instanceOf(InstanceValue), 
+                                                        | $f->cast(@InstanceValue).values->cast(@FunctionDefinition<Any>).expressionSequence->toOne()->byPassValueSpecificationWrapper().genericType.rawType->toOne()->cast(@DataType),
+                                                        | $f->cast(@FunctionDefinition<Any>).expressionSequence->toOne()->byPassValueSpecificationWrapper().genericType.rawType->toOne()->cast(@DataType))),
+                                   $p.second->cast(@String)));
+  
+  ^ProjectExecutionNode
+  (
+    expression = ^$fe(parametersValues=$substitute->concatenate($params->tail()->map(p | $p->byPassValueSpecificationWrapper()))),
+    resultType = ^meta::pure::executionPlan::TDSResultType(type=TabularDataSet, tdsColumns = $tdsColumns->map(p | ^TDSColumn(name = $p.second, type = $p.first))),
+    executionNodes = $childNode,
+    fromCluster = generatePlatformClusterForFunction($fe, $state.inScopeVars),
+    rowLimit = $state.limit
+  );
+}
+
+function <<access.private>> meta::pure::platform::executionPlan::generation::tdsTakeFunctionProcessor(fe:FunctionExpression[1], state:PlatformPlanGenerationState[1], extensions:Extension[*], debug:DebugContext[1]):ExecutionNode[1]
+{
+  let params = $fe.parametersValues->evaluateAndDeactivate();
+  let collection = $params->at(0);
+  let limitCount = $params->at(1)->cast(@InstanceValue).values->cast(@Integer)->toOne();
+  $collection->processValueSpecification(^$state(limit = $limitCount),$extensions,$debug)->toOne();
+}
+
+function <<access.private>> meta::pure::platform::executionPlan::generation::tdsFilterFunctionProcessor(fe:FunctionExpression[1], state:PlatformPlanGenerationState[1], extensions:Extension[*], debug:DebugContext[1]):ExecutionNode[1]
+{
+  let params = $fe.parametersValues->evaluateAndDeactivate();
+  let collection = $params->at(0);
+  let tdsFilter = $params->at(1)->byPassValueSpecificationWrapper()->cast(@InstanceValue).values->cast(@FunctionDefinition<Any>)->toOne();
+  $collection->processValueSpecification(^$state(tdsFilter = $tdsFilter),$extensions,$debug)->toOne();
+}
+
 function <<access.private>> meta::pure::platform::executionPlan::generation::generatePlatformClusterForFunction(fe:FunctionExpression[1], inScopeVars : Map<String, List<Any>>[1]):PlatformClusteredValueSpecification[1]
 {
    ^PlatformClusteredValueSpecification(
@@ -135,11 +178,14 @@ function <<access.private>> meta::pure::platform::executionPlan::generation::get
    let specificProcessorsForFunctions =
       newMap([
         ^PureFunctionToProcessFunctionPair(first = meta::pure::functions::collection::concatenate_T_MANY__T_MANY__T_MANY_, second = unionFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
+        ^PureFunctionToProcessFunctionPair(first = meta::pure::tds::filter_TabularDataSet_1__Function_1__TabularDataSet_1_, second = tdsFilterFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::functions::lang::letFunction_String_1__T_m__T_m_, second = letFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
+        ^PureFunctionToProcessFunctionPair(first = meta::pure::tds::project_K_MANY__Function_MANY__String_MANY__TabularDataSet_1_, second = projectFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::graphFetch::execution::serialize_T_MANY__RootGraphFetchTree_1__String_1_, second = serializeFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::graphFetch::execution::serialize_Checked_MANY__RootGraphFetchTree_1__String_1_, second = serializeFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::graphFetch::execution::serialize_T_MANY__RootGraphFetchTree_1__AlloySerializationConfig_1__String_1_, second = serializeFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::graphFetch::execution::serialize_Checked_MANY__RootGraphFetchTree_1__AlloySerializationConfig_1__String_1_, second = serializeFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
+        ^PureFunctionToProcessFunctionPair(first = meta::pure::tds::take_TabularDataSet_1__Integer_1__TabularDataSet_1_, second = tdsTakeFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_),
         ^PureFunctionToProcessFunctionPair(first = meta::pure::functions::collection::union_T_MANY__T_MANY__T_MANY_, second = unionFunctionProcessor_FunctionExpression_1__PlatformPlanGenerationState_1__Extension_MANY__DebugContext_1__ExecutionNode_1_)
       ]);
 

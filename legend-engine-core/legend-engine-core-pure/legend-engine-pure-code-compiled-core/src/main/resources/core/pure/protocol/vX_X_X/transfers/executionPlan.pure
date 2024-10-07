@@ -50,6 +50,13 @@ function meta::protocols::pure::vX_X_X::transformation::fromPureGraph::execution
                connection = $rel.connection->cast(@meta::external::store::model::ModelConnection)->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformModelConnection(),
                pureModelContextData = $rel.mapping->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::buildBasePureModelFromMapping( {m:meta::pure::mapping::Mapping[1], p:	meta::protocols::Protocol[1] |[]}, $extensions).second
          ),
+         project:meta::pure::executionPlan::ProjectExecutionNode[1]|
+            ^meta::protocols::pure::vX_X_X::metamodel::executionPlan::ProjectExecutionNode(
+              _type='project',
+              resultType=$project.resultType->transformResultType($extensions),
+              rowLimit = $project.rowLimit,
+              pure = $project.expression->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::valueSpecification::transformValueSpecification([], newMap([]->cast(@Pair<String, List<Any>>)), $extensions)
+            ),
          platform:meta::pure::executionPlan::PureExpressionPlatformExecutionNode[1]|
             ^meta::protocols::pure::vX_X_X::metamodel::executionPlan::PureExpressionPlatformExecutionNode(
                _type='pureExp',

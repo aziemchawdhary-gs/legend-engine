@@ -593,7 +593,7 @@ function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForExpre
    $srcNode->enrichSourceTreeNodeForPropertyPath($exprThisClass, $propertyPath);
 }
 
-function <<access.private>> meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath(srcNode:GraphFetchTree[1], baseClass:Class<Any>[1], propertyPath:ScanPropertiesState[0..1]): GraphFetchTree[1]
+function meta::pure::graphFetch::enrichSourceTreeNodeForPropertyPath(srcNode:GraphFetchTree[1], baseClass:Class<Any>[1], propertyPath:ScanPropertiesState[0..1]): GraphFetchTree[1]
 {
    let inlinedPropertyTree        = $propertyPath.result->buildPropertyTree()->inlineQualifiedPropertyNodes();
    let inlinedPropertyGraphTrees  = $inlinedPropertyTree->propertyTreeToGraphFetchTree($baseClass).subTrees->cast(@PropertyGraphFetchTree);

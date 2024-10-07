@@ -54,6 +54,11 @@ Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::PureExpressionPla
    pure : meta::protocols::pure::vX_X_X::metamodel::valueSpecification::ValueSpecification[1];
 }
 
+Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::ProjectExecutionNode extends PureExpressionPlatformExecutionNode
+{
+   rowLimit : Integer[0..1];
+}
+
 Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::PlatformUnionExecutionNode extends ExecutionNode
 {
   isChildrenExecutionParallelizable: Boolean[0..1];

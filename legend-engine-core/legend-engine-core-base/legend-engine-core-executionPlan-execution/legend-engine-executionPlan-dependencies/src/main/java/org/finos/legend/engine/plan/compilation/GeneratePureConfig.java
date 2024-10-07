@@ -40,12 +40,7 @@ import org.finos.legend.engine.plan.dependencies.store.inMemory.graphFetch.IInMe
 import org.finos.legend.engine.plan.dependencies.store.inMemory.graphFetch.IInMemoryRootGraphFetchExecutionNodeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.inMemory.graphFetch.IInMemoryRootGraphFetchMergeExecutionNodeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.inMemory.graphFetch.IStoreStreamReadingExecutionNodeSpecifics;
-import org.finos.legend.engine.plan.dependencies.store.platform.IGraphSerializer;
-import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeGraphFetchMergeSpecifics;
-import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeGraphFetchUnionSpecifics;
-import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeSerializeSpecifics;
-import org.finos.legend.engine.plan.dependencies.store.platform.ISerializationWriter;
-import org.finos.legend.engine.plan.dependencies.store.platform.PredefinedExpressions;
+import org.finos.legend.engine.plan.dependencies.store.platform.*;
 import org.finos.legend.engine.plan.dependencies.store.platform.graphFetch.IPlatformPrimitiveQualifierLocalGraphFetchExecutionNodeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.relational.IRelationalCreateAndPopulateTempTableExecutionNodeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.relational.classResult.IRelationalClassInstantiationNodeExecutor;
@@ -150,6 +145,7 @@ public class GeneratePureConfig
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IPlatformPureExpressionExecutionNodeSerializeSpecifics", IPlatformPureExpressionExecutionNodeSerializeSpecifics.class);
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IPlatformPureExpressionExecutionNodeGraphFetchUnionSpecifics", IPlatformPureExpressionExecutionNodeGraphFetchUnionSpecifics.class);
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IPlatformPureExpressionExecutionNodeGraphFetchMergeSpecifics", IPlatformPureExpressionExecutionNodeGraphFetchMergeSpecifics.class);
+        MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IPlatformPureProjectExecutionNodeSpecifics", IPlatformProjectExecutionNodeSpecifics.class);
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "ISerializationWriter", ISerializationWriter.class);
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IGraphSerializer", IGraphSerializer.class);
         MAIN_DEPENDENCIES.put(PURE_PACKAGE + "IStoreStreamReadingExecutionNodeSpecifics", IStoreStreamReadingExecutionNodeSpecifics.class);

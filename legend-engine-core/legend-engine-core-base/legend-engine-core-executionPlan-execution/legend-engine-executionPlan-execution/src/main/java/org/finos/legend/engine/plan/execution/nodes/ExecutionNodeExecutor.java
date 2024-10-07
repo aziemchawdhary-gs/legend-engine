@@ -25,6 +25,7 @@ import org.finos.legend.engine.identity.extensions.pac4j.Pac4jUtils;
 import org.finos.legend.engine.plan.dependencies.domain.dataQuality.Constrained;
 import org.finos.legend.engine.plan.dependencies.domain.dataQuality.IChecked;
 import org.finos.legend.engine.plan.dependencies.domain.graphFetch.IGraphInstance;
+import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformProjectExecutionNodeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeGraphFetchMergeSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeGraphFetchUnionSpecifics;
 import org.finos.legend.engine.plan.dependencies.store.platform.IPlatformPureExpressionExecutionNodeSerializeSpecifics;
@@ -44,32 +45,15 @@ import org.finos.legend.engine.plan.execution.nodes.helpers.platform.JavaHelper;
 import org.finos.legend.engine.plan.execution.nodes.state.ExecutionState;
 import org.finos.legend.engine.plan.execution.nodes.state.GraphExecutionState;
 import org.finos.legend.engine.plan.execution.planHelper.PrimitiveValueSpecificationToObjectVisitor;
-import org.finos.legend.engine.plan.execution.result.ConstantResult;
-import org.finos.legend.engine.plan.execution.result.ErrorResult;
-import org.finos.legend.engine.plan.execution.result.MultiResult;
-import org.finos.legend.engine.plan.execution.result.Result;
-import org.finos.legend.engine.plan.execution.result.ResultVisitor;
+import org.finos.legend.engine.plan.execution.result.*;
 import org.finos.legend.engine.plan.execution.result.builder._class.PartialClassBuilder;
+import org.finos.legend.engine.plan.execution.result.builder.tds.TDSBuilder;
 import org.finos.legend.engine.plan.execution.result.graphFetch.GraphFetchResult;
 import org.finos.legend.engine.plan.execution.result.graphFetch.GraphObjectsBatch;
 import org.finos.legend.engine.plan.execution.result.object.StreamingObjectResult;
 import org.finos.legend.engine.plan.execution.stores.StoreType;
 import org.finos.legend.engine.plan.execution.validation.FunctionParametersParametersValidation;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.AggregationAwareExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.AllocationExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.ConstantExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.ErrorExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.ExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.ExecutionNodeVisitor;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.FreeMarkerConditionalExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.FunctionParametersValidationNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.GraphFetchM2MExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.JavaPlatformImplementation;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.MultiResultSequenceExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.PlatformMergeExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.PlatformUnionExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.PureExpressionPlatformExecutionNode;
-import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SequenceExecutionNode;
+import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.*;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.externalFormat.VariableResolutionExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.GlobalGraphFetchExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.GraphFetchExecutionNode;
@@ -86,6 +70,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.valueSpecification.applica
 import org.finos.legend.engine.protocol.pure.v1.model.valueSpecification.raw.ClassInstance;
 import org.finos.legend.engine.protocol.pure.v1.model.valueSpecification.raw.classInstance.SerializationConfig;
 import org.finos.legend.engine.protocol.pure.v1.model.valueSpecification.raw.classInstance.graph.PropertyGraphFetchTree;
+import org.finos.legend.engine.shared.core.api.request.RequestContext;
 import org.finos.legend.engine.shared.core.identity.Identity;
 import org.pac4j.core.profile.ProfileManager;
 
@@ -102,6 +87,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -151,6 +137,10 @@ public class ExecutionNodeExecutor implements ExecutionNodeVisitor<Result>
         else if (executionNode instanceof PlatformMergeExecutionNode)
         {
             return executionNode.executionNodes.get(0).accept(new ExecutionNodeExecutor(this.identity, this.executionState));
+        }
+        else if (executionNode instanceof ProjectExecutionNode)
+        {
+            this.executeProjectExecutionNode((ProjectExecutionNode) executionNode);
         }
         else if (executionNode instanceof VariableResolutionExecutionNode)
         {
@@ -236,6 +226,10 @@ public class ExecutionNodeExecutor implements ExecutionNodeVisitor<Result>
     @Override
     public Result visit(PureExpressionPlatformExecutionNode pureExpressionPlatformExecutionNode)
     {
+        if (pureExpressionPlatformExecutionNode instanceof ProjectExecutionNode)
+        {
+            return this.executeProjectExecutionNode((ProjectExecutionNode) pureExpressionPlatformExecutionNode);
+        }
         if (!(pureExpressionPlatformExecutionNode.implementation instanceof JavaPlatformImplementation))
         {
             throw new RuntimeException("Only Java implementations are currently supported, found: " + pureExpressionPlatformExecutionNode.implementation);
@@ -618,6 +612,39 @@ public class ExecutionNodeExecutor implements ExecutionNodeVisitor<Result>
             }
         }
         return last;
+    }
+
+    private Result executeProjectExecutionNode(ProjectExecutionNode node)
+    {
+        Result childResult = node.executionNodes.get(0).accept(new ExecutionNodeExecutor(this.identity, this.executionState));
+        try
+        {
+            TDSBuilder tdsBuilder = new TDSBuilder(node);
+            int numberOfColums = tdsBuilder.columns.size();
+            Map<String, Integer> columnToOffsetMap = IntStream.range(0, numberOfColums).boxed().collect(Collectors.toMap(i -> tdsBuilder.columns.get(i).name, i -> i));
+
+            String executionClassName = JavaHelper.getExecutionClassFullName((JavaPlatformImplementation) node.implementation);
+            Class<?> specificsClass = ExecutionNodeJavaPlatformHelper.getClassToExecute(node, executionClassName, this.executionState, this.identity);
+            IPlatformProjectExecutionNodeSpecifics specifics = (IPlatformProjectExecutionNodeSpecifics<?>) specificsClass.getConstructor().newInstance();
+            Stream<?> objectStream = ((StreamingObjectResult<?>) childResult).getObjectStream();
+            DefaultExecutionNodeContext executionNodeContext = new DefaultExecutionNodeContext(this.executionState, childResult);
+            Stream<Object[]> rows = objectStream.flatMap(o -> specifics.executeProject(o, executionNodeContext)
+                    .stream()
+                    .map(m ->
+                    {
+                        Object[] res = new Object[numberOfColums];
+                        ((Map<String, Object>) m).forEach((key, value) -> res[columnToOffsetMap.get(key)] = value);
+                        return res;
+                    })
+            );
+            Stream<Object[]> limitedRows = node.rowLimit != null ? rows.limit(node.rowLimit) : rows;
+            return new TDSResult(limitedRows, tdsBuilder, this.executionState.activities, RequestContext.getSessionID(this.executionState.getRequestContext()));
+        }
+        catch (Exception e)
+        {
+            childResult.close();
+            throw new RuntimeException("Only StreamingObjectResult supported with platform project");
+        }
     }
 
     private ExecutionCache<GraphFetchCacheKey, List<Object>> findGraphFetchCacheByTargetCrossKeys(StoreMappingGlobalGraphFetchExecutionNode globalGraphFetchExecutionNode)
