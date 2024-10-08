@@ -77,11 +77,11 @@ public class ServiceStoreJsonShowcaseTest extends ServiceStoreTestSuite
     public void simpleStoreSimpleProjectExample()
     {
         String query = "###Pure\n" +
-                "function showcase::query():Any[1]\n"+
-                "{\n"+
+                "function showcase::query():Any[1]\n" +
+                "{\n" +
                 "   {|meta::external::store::service::showcase::domain::S_Trade.all()" +
                 "     ->project([s | $s.s_tradeId, s | $s.s_traderDetails], ['s_tradeId, 's_traderDetails'])->take(3)" +
-                "   };\n"+
+                "   };\n" +
                 "}";
 
         SingleExecutionPlan plan = buildPlanForQuery(pureGrammar + "\n\n" + query);
