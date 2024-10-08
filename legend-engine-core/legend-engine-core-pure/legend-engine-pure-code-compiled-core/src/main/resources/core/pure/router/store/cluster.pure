@@ -423,7 +423,10 @@ function meta::pure::router::clustering::cluster(v:ValueSpecification[1], mappin
                                               let clusterResponse       = $r.value->cluster($r.mapping, $openVariables, $r.executionContext, ^$debug(space = $debug.space+'   '), $analyticsDecision, $extensions);
                                               let result                = $clusterResponse.cluster->evaluateAndDeactivate();
                                               let pre_y = $result->match([
-                                                                           c: ClusteredValueSpecification[1]|^$c(val = ^$r(value = $c.val)),
+                                                                           c: ClusteredValueSpecification[1]|let currentCluster = if($r.sets->isNotEmpty() , | $r->meta::pure::router::clustering::getClusterVSFromSets( $r.sets,$openVariables,$mapping->toOne(),$extensions), | $c)->evaluateAndDeactivate();
+                                                                                                             if(areClustersCompatible($c, $currentCluster, $extensions),
+                                                                                                              | ^$c(val = ^$r(value = $c.val)),
+                                                                                                              | ^PlatformClusteredValueSpecification(genericType=$c.genericType,openVars=$c.openVars,executable=$c.executable,multiplicity=$c.multiplicity,val=^$r(value=$c.val)));,
                                                                            a: Any[1]| if($r.sets->isEmpty(),                                           // This check is needed for expressions (like : let x = 1->from($mapping, $runtime)) where there are no sets found
                                                                                          | $clusterResponse.cluster,
                                                                                          | $r->meta::pure::router::clustering::getClusterVSFromSets($r.sets, $openVariables, $mapping->toOne(), $extensions));
@@ -440,7 +443,8 @@ function meta::pure::router::clustering::cluster(v:ValueSpecification[1], mappin
                                           let clusterResponses = $f.expressionSequence->evaluateAndDeactivate()->map(v|print(if($debug.debug,|'\n'+$v->asString()->debug($debug.space+'Processing: '),|''));
                                                                                                                        $v->cluster($mapping, $openVariables, $exeCtx, ^$debug(space = $debug.space+'  '), $analyticsDecision, $extensions););
                                           let expressions      = $clusterResponses.cluster;
-                                          let unique           = $expressions->filter(p|$p->instanceOf(StoreMappingClusteredValueSpecification))->cast(@StoreMappingClusteredValueSpecification)->removeDuplicatesBy(a | $a.store);
+                                          // let unique           = $expressions->filter(p|$p->instanceOf(StoreMappingClusteredValueSpecification))->cast(@StoreMappingClusteredValueSpecification)->removeDuplicatesBy(a | $a.store);
+                                          let unique = $expressions->filter(p|$p->instanceOf(ClusteredValueSpecification))->cast(@ClusteredValueSpecification)->removeDuplicates({c1, c2 | areClustersCompatible($c1,$c2,$extensions)});
                                           if($unique->size() == 0,
                                              | ^ClusterResponse(cluster=^$i(values=^$f(expressionSequence = $expressions->toOneMany())),letFunctions = $clusterResponses.letFunctions, executableSetOperations= $clusterResponses.executableSetOperations),
                                              | if($unique->size() == 1,
@@ -492,7 +496,7 @@ function meta::pure::router::clustering::cluster(v:ValueSpecification[1], mappin
                                   );,
                r:FunctionRoutedValueSpecification[1]|let clusterResponse = $r.value->cluster($mapping, $openVariables, $exeCtx,^$debug(space = $debug.space+'  '), $analyticsDecision, $extensions);
                                                      let nc              = $clusterResponse.cluster->evaluateAndDeactivate();
-                                                     ^ClusterResponse(cluster=$nc->match([nc:StoreMappingClusteredValueSpecification[1]|^$nc(val=^$r(value=$nc.val)), a:ValueSpecification[1]|$r]), letFunctions= $clusterResponse.letFunctions, executableSetOperations= $clusterResponse.executableSetOperations);,
+                                                     ^ClusterResponse(cluster=$nc->match([nc:ClusteredValueSpecification[1]|^$nc(val=^$r(value=$nc.val)), a:ValueSpecification[1]|$r]), letFunctions= $clusterResponse.letFunctions, executableSetOperations= $clusterResponse.executableSetOperations);,
                n:NoSetRoutedValueSpecification[1]| $n.value->cluster($mapping, $openVariables, $exeCtx,  $debug, $analyticsDecision, $extensions), // TODO: cleanup needed
                v:VariableExpression[1]|print(if($debug.debug,|$v->asString()->debug($debug.space+'Var: '),|''));
                                        ^ClusterResponse(cluster=$v);,
@@ -606,8 +610,8 @@ function meta::pure::router::clustering::getDistinctClusterVSByStore(params:Valu
 
    let p_unique = $allClusters->concatenate($params)->filter(p|$p->instanceOf(ClusteredValueSpecification))->cast(@ClusteredValueSpecification)->removeDuplicates({x, y | ($x->instanceOf(PlatformClusteredValueSpecification) && $y->instanceOf(PlatformClusteredValueSpecification))
                                                                                                                                                                        || ($x->instanceOf(StoreClusteredValueSpecification) && $y->instanceOf(StoreClusteredValueSpecification) && areStoreMappingClustersCompatible($x->cast(@StoreClusteredValueSpecification), $y->cast(@StoreClusteredValueSpecification), $extensions))});
-   let n_unique = if ($p_unique->size() > 1,|$p_unique->filter(p|!$p.val->isOneFunction()),|$p_unique);
-   $n_unique;
+  //  let n_unique = if ($p_unique->size() > 1,|$p_unique->filter(p|!$p.val->isOneFunction()),|$p_unique);
+   $p_unique;
 }
 
 function meta::pure::router::store::clustering::areStoreMappingClustersCompatible(cluster1:StoreClusteredValueSpecification[1], cluster2:StoreClusteredValueSpecification[1], extensions:meta::pure::extension::Extension[*]):Boolean[1]
