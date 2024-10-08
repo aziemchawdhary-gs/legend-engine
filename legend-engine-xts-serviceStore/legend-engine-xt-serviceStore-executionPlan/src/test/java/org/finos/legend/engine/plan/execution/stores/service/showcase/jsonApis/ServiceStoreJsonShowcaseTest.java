@@ -80,7 +80,7 @@ public class ServiceStoreJsonShowcaseTest extends ServiceStoreTestSuite
                 "function showcase::query():Any[1]\n" +
                 "{\n" +
                 "   {|meta::external::store::service::showcase::domain::S_Trade.all()" +
-                "     ->project([s | $s.s_tradeId, s | $s.s_traderDetails], ['s_tradeId, 's_traderDetails'])->take(3)" +
+                "     ->project([s | $s.s_tradeId, s | $s.s_traderDetails], ['s_tradeId', 's_traderDetails'])->take(3)" +
                 "   };\n" +
                 "}";
 
