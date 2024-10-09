@@ -35,8 +35,8 @@ function <<meta::pure::profiles::test.Test>> meta::external::store::service::tes
       }
    }#;
    
-   let query  = {|S_Trade.all()->graphFetch($tree)->serialize($tree)};
-   let routed = $query->routeFunction(serviceStoreMapping(), serviceStoreRuntime(), ^meta::pure::runtime::ExecutionContext(), serviceStoreTestExtensions(), noDebug());
+   let query  = {|S_Trade.all()->project([x | $x.s_tradeId], ['trade/Id'])};
+   let routed = $query->routeFunction(serviceStoreMapping(), serviceStoreRuntime(), ^meta::pure::runtime::ExecutionContext(), serviceStoreTestExtensions()->concatenate(meta::external::format::shared::externalFormatExtension())->concatenate(meta::external::format::json::extension::jsonSchemaFormatExtension()), noDebug());
    assertEquals(' | {Platform> [strategy_wrapper /{meta::external::store::service::tests::store::TradeProductServiceStore> [1 s_trade_set/[1 s_trade_set/[1 s_trade_set/Class S_Trade].all()] -> graphFetch({meta::external::store::service::tests::store::TradeProductServiceStore> [s_trade_set / meta::external::store::service::tests::domain::S_Trade] {@(s_trade_set->)@ [ / s_tradeId], @(s_trade_set->)@ [ / s_traderDetails], @(s_trade_set->)@ [ / s_tradeDetails]}})]} -> serialize(#{meta::external::store::service::tests::domain::S_Trade {s_tradeId, s_traderDetails, s_tradeDetails}}#)]};', $routed->meta::pure::router::printer::asString());
 }
 
