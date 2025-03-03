@@ -1,0 +1,24 @@
+  println('scanProperties:');
+  let a = ^test::A(i=2);
+  let b = ^test::B(i=3);
+  let f = {| test::f($a,[])};
+  let props = $f.expressionSequence->at(0)->evaluateAndDeactivate()->meta::pure::lineage::scanProperties::scanProperties();
+  $props.result->meta::pure::lineage::scanProperties::printPropertyNodeLists()->println();
+  //  meta::pure::mapping::modelToModel::test::alloy::simple::testConcreteFunctionCallWithPropertyAccess();
+  print('ok', 1);
+
+Class test::A 
+{
+  b : test::B[*];
+  i : Integer[1];
+}
+
+Class test::B
+{
+  i : Integer[1];
+}
+
+function test::f(a:test::A[1], b:test::B[*]) : Integer[*]
+{
+  if($b->isNotEmpty(), | $b.i, | $a.i);
+}
