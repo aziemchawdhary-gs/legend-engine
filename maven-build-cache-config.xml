@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<cache xmlns="http://maven.apache.org/BUILD-CACHE-CONFIG/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://maven.apache.org/BUILD-CACHE-CONFIG/1.0.0 https://maven.apache.org/xsd/build-cache-config-1.0.0.xsd">
+<configuration>
+            <enabled>true</enabled>
+            <hashAlgorithm>XX</hashAlgorithm>
+</configuration>
+<input>
+            <global>
+              <glob>
+                {*.pure,*.java,*.groovy,*.yaml,*.svcd,*.proto,*assembly.xml,assembly*.xml,*logback.xml,*.vm,*.ini,*.jks,*.properties,*.sh,*.bat}
+</glob>
+            </global>
+</input>
+        <executionControl>
+            <runAlways>
+                <plugins>
+                    <plugin artifactId="maven-failsafe-plugin"/>
+                </plugins>
+                <executions>
+                    <execution artifactId="maven-dependency-plugin">
+                        <execIds>
+                            <execId>unpack-autoupdate</execId>
+                        </execIds>
+                    </execution>
+                </executions>
+                <goalsLists>
+                    <goalsList artifactId="maven-install-plugin">
+                        <goals>
+                            <goal>install</goal>
+                        </goals>
+                    </goalsList>
+                </goalsLists>
+            </runAlways>
+        </executionControl>
+</cache>
