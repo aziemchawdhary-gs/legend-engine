@@ -69,6 +69,7 @@ import javax.servlet.FilterRegistration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public abstract class PureIDEServer extends Application<ServerConfiguration>
 {
@@ -103,7 +104,7 @@ public abstract class PureIDEServer extends Application<ServerConfiguration>
                         (configuration.swagger.getContextRoot().endsWith("/") ? "" : "/") + "api")
         );
 
-        this.pureSession = new PureSession(configuration.sourceLocationConfiguration, configuration.debugMode != null && configuration.debugMode, this.getRepositories(configuration.sourceLocationConfiguration, configuration.requiredRepositories));
+        this.pureSession = new PureSession(configuration.sourceLocationConfiguration, configuration.debugMode != null && configuration.debugMode, this.getRepositories(configuration));
 
         environment.jersey().register(new Concept(pureSession));
         environment.jersey().register(new RenameConcept(pureSession));
@@ -133,7 +134,7 @@ public abstract class PureIDEServer extends Application<ServerConfiguration>
 
         enableCors(environment);
 
-        if(configuration.alloyServerMode != null && configuration.alloyServerMode)
+        if (configuration.alloyServerMode != null && configuration.alloyServerMode)
         {
             withAlloyServerSupport();
         }
