@@ -1594,11 +1594,11 @@ function <<access.private>> meta::external::query::sql::transformation::queryToP
           ^$nc(aliases = $aliases);,
       s:SQLSource[0..1] |
         let processor = tableFunctionProcessor($type);
-
+        // println($processor); fail();
         assert($processor->isNotEmpty(), 'No source or known table function found for type ' + $type);
 
         let expContext = expressionContext([], ^Map<String, VariableExpression>(), $_context.relation->isTrue());
-
+        // println($tableFunc); fail();
         let args = $tableFunc.functionCall.arguments->map(a | $a->processExpression($expContext, $context));
         let expression = $processor->toOne().transform->eval($args->evaluateAndDeactivate(), $tableFunc.functionCall, $expContext, $context);
 
@@ -2072,7 +2072,7 @@ function <<access.private>> meta::external::query::sql::transformation::queryToP
 
   //we do not want to maintain type casting if we enter a function as it could cast any param incorrectly
   let functionalContext = ^$expContext(type = []);
-
+  println($expression);
   let exp = $expression->match([
     a:ArithmeticExpression[1] | processArithmeticExpression($a, $expContext, $context),
     a:ArraySliceExpression[1] | processArraySliceExpression($a, $expContext, $context),
@@ -2100,6 +2100,7 @@ function <<access.private>> meta::external::query::sql::transformation::queryToP
     s:SimpleCaseExpression[1] | processSimpleCaseExpression($s, $expContext, $context),
     s:SearchedCaseExpression[1] | processSearchedCaseExpression($s, $expContext, $context),
     s:SubscriptExpression[1] | processSubscriptExpression($s, $expContext, $context),
+    s:SubqueryExpression[1] | let sql = processQuery($s.query, $context); iv($sql.lambda(false));,
     t:Trim[1] | processTrim($t, $expContext, $context),
     e:meta::external::query::sql::metamodel::Expression[*] | fail('Expression type not yet supported'); iv(1);
   ])->evaluateAndDeactivate();
@@ -2313,7 +2314,7 @@ function <<access.private>> meta::external::query::sql::transformation::queryToP
 function <<access.private>> meta::external::query::sql::transformation::queryToPure::processQualifiedNameReference(q:QualifiedNameReference[1], expContext:SqlTransformExpressionContext[1], context:SqlTransformContext[1]):ValueSpecification[1]
 {
   debug(|'processQualififedNameReference', $context.debug);
-
+  // println($q);fail();
   createTdsColumn($q.name, $expContext.var($q.name), $expContext, $context);
 }
 
@@ -3967,7 +3968,7 @@ Class meta::external::query::sql::transformation::queryToPure::SqlTransformConte
   }:SQLColumnAlias[0..1];
 
   lambda(wrapWithFromIfRequired:Boolean[1]){
-
+    println($this.expression); fail();
     let scoped = $this.scopeVariables->values()->filter(v | $v->instanceOf(VariableExpression))->cast(@VariableExpression)->evaluateAndDeactivate();
 
     let lambda = lambda(

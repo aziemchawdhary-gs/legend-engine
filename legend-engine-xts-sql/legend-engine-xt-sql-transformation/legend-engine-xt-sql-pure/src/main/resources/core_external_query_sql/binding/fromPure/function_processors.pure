@@ -32,6 +32,22 @@ function meta::external::query::sql::transformation::queryToPure::tableFunctionP
 
       $relation->evaluateAndDeactivate();
     })
+
+    //     misc('data_profile', Relation, {args, fc, expCtx, ctx |
+    //   assertRelation($ctx.relation, 'data_profile');
+
+    //   let relation = getVariableReference($args, $ctx);
+
+    //   // let inner = meta::external::query::sql::transformation::queryToPure::sqlToPure($args->at(0));
+    //   // let l = meta::external::dataquality::dataprofile::getProfilingLambda()
+
+    //   // let r = meta::external::dataquality::dataprofile::getProfilingLambda($inner, [], [], false);
+
+    //   // assert($relation.genericType.rawType->toOne()->subTypeOf(meta::pure::metamodel::relation::Relation), | 'var table expression must be a relation');
+
+    //   $relation->evaluateAndDeactivate();
+    // })
+
   ]
 }
 
@@ -522,7 +538,12 @@ function meta::external::query::sql::transformation::queryToPure::functionProces
   let coreProcessor = $processors->filter(p | $p.name == $name->toLower());
 
   let processor = if ($coreProcessor->isEmpty(),
-  | meta::external::query::sql::getSQLExtensions().udf($name),
+  | let udfProc = meta::external::query::sql::getSQLExtensions().udf($name);
+    if($udfProc->isEmpty(),
+      | meta::external::query::sql::getSQLExtensions().udtf($name),
+      | $udfProc->toOne()
+    );
+  ,
   | $coreProcessor);
 
   assertEquals(1, $processor->size(), | 'no handler found for function ' + $name);

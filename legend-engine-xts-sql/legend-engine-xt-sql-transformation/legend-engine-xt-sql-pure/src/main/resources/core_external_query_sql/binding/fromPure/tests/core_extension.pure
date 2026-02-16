@@ -28,6 +28,18 @@ function <<test.Test>> meta::external::query::sql::transformation::queryToPure::
   )
 }
 
+function <<test.Test>> meta::external::query::sql::transformation::queryToPure::tests::testDateDiff2():Boolean[1]
+{
+  test(
+    'SELECT * FROM core_dataprofile((select * from service."/service/service1"))',
+
+     {| FlatInput.all()->project(
+            ~[ Boolean: x | $x.booleanIn, Integer: x | $x.integerIn, Float: x | $x.floatIn, Decimal: x | $x.decimalIn, StrictDate: x | $x.strictDateIn, DateTime: x | $x.dateTimeIn, String: x | $x.stringIn]
+          )
+      }
+  )
+}
+
 function <<test.Test>> meta::external::query::sql::transformation::queryToPure::tests::testMostRecentDayOfWeek():Boolean[1]
 {
   test(

@@ -369,6 +369,19 @@ public class TestSQLRoundTrip
         check("SELECT * from (SELECT col from myTable)");
     }
 
+
+    @Test
+    public void testNested2()
+    {
+        check("SELECT * FROM d((select * from \"/service\"))");
+    }
+
+    @Test
+    public void tesNested3()
+    {
+        check("select * from tableFunc(source => (select * from myTable))");
+    }
+
     @Test
     public void testCommonTableExpressionSingle()
     {

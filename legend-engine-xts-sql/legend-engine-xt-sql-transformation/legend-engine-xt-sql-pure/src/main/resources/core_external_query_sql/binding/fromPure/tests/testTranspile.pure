@@ -49,6 +49,8 @@ function <<test.Test>> meta::external::query::sql::transformation::queryToPure::
   )
 }
 
+
+
 function <<test.Test>> meta::external::query::sql::transformation::queryToPure::tests::testSelectNull():Boolean[1]
 {
   test(

@@ -138,7 +138,8 @@ function meta::external::query::sql::transformation::queryToPure::tests::relatio
 
 function meta::external::query::sql::transformation::queryToPure::tests::processQuery(sql: String[1], sources:SQLSource[*], scopeWithFrom:Boolean[1]): SqlTransformContext[1]
 {
-  processQuery($sql, $sources, $scopeWithFrom, false)
+  // println($sources);fail();
+  processQuery($sql, $sources, $scopeWithFrom, false);
 }
 
 function meta::external::query::sql::transformation::queryToPure::tests::processQuery(sql: String[1], sources:SQLSource[*], scopeWithFrom:Boolean[1], failOnInvalidColumns:Boolean[1]): SqlTransformContext[1]
@@ -148,5 +149,5 @@ function meta::external::query::sql::transformation::queryToPure::tests::process
   let extensions = relationalExtensions();
   let context = rootContext($sources, $extensions);
 
-  $query->processRootQuery(^$context(scopeWithFrom = $scopeWithFrom, withSupported = true, debug=noDebug(), failOnInvalidColumns = $failOnInvalidColumns));
+  $query->processRootQuery(^$context(scopeWithFrom = $scopeWithFrom, withSupported = true, debug=debug(), failOnInvalidColumns = $failOnInvalidColumns));
 }
