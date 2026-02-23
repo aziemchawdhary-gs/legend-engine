@@ -9,9 +9,9 @@ from typing import List, Optional
 from . import __version__
 from .api import BuildResult, TeamCityClient, TeamCityError
 from .config import Config, ConfigError, create_config_file, load_config, validate_config
-from .discovery import BuildType, fetch_build_types, filter_build_types
+from .discovery import BuildType, fetch_build_types, filter_build_types, filter_by_changed_files
 from .monitor import BuildMonitor
-from .patch import PatchError, get_patch
+from .patch import PatchError, extract_changed_files, get_patch
 
 logger = logging.getLogger("tc_build")
 
@@ -177,6 +177,24 @@ def cmd_trigger(args: argparse.Namespace, config: Config) -> int:
         except TeamCityError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
+
+        # Auto-narrow by changed files
+        changed_files = extract_changed_files(patch_content)
+        if changed_files:
+            total = len(build_types)
+            build_types = filter_by_changed_files(build_types, changed_files)
+            if build_types:
+                print(
+                    f"Filtered to {len(build_types)} build configs matching "
+                    f"changed files (from {total} total)"
+                )
+            else:
+                print(
+                    "WARNING: No build configs match changed files. "
+                    "Showing all configs.",
+                    file=sys.stderr,
+                )
+                build_types = fetch_build_types(client, config.default_project or None)
 
         # Apply favorites filter
         if getattr(args, "favorites", False) and config.favorites:

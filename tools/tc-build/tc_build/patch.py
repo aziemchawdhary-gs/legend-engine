@@ -1,10 +1,11 @@
 """Git diff patch generation and validation."""
 
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,28 @@ def _check_branch_reachable(base_branch: str) -> None:
         )
 
 
+def _fetch_base_branch(base_branch: str) -> None:
+    """Fetch the remote tracking branch so the diff is up to date."""
+    if "/" not in base_branch:
+        return
+    remote, branch = base_branch.split("/", 1)
+    logger.debug("Fetching %s from %s", branch, remote)
+    result = _run_git("fetch", remote, branch)
+    if result.returncode != 0:
+        print(
+            f"WARNING: git fetch {remote} {branch} failed: "
+            f"{result.stderr.strip()}. Continuing with local state.",
+            file=sys.stderr,
+        )
+
+
 def generate_patch(base_branch: str = "origin/master") -> str:
     """Generate a unified diff patch from base_branch...HEAD.
 
     Returns the patch content as a string.
     """
     _check_git_repo()
+    _fetch_base_branch(base_branch)
     _check_branch_reachable(base_branch)
 
     result = _run_git("diff", f"{base_branch}...HEAD")
@@ -105,6 +122,18 @@ def validate_patch(content: str) -> None:
             "TeamCity may not accept this format.",
             file=sys.stderr,
         )
+
+
+def extract_changed_files(patch_content: str) -> List[str]:
+    """Extract changed file paths from a unified diff patch.
+
+    Parses 'diff --git a/... b/...' lines and returns deduplicated sorted
+    list of destination paths (the b/ side, which reflects renames).
+    """
+    seen: set = set()
+    for match in re.finditer(r"^diff --git a/.+ b/(.+)$", patch_content, re.MULTILINE):
+        seen.add(match.group(1))
+    return sorted(seen)
 
 
 def get_patch(patch_file: Optional[str], base_branch: str) -> str:

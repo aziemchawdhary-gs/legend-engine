@@ -237,11 +237,19 @@ class TeamCityClient:
     ) -> List[Dict[str, Any]]:
         """List build configurations, optionally filtered by project.
 
-        Paginates in batches of 100.
+        Paginates in batches of 100. Includes VCS root entries with checkout
+        rules so callers can filter by changed files.
         """
         all_build_types: List[Dict[str, Any]] = []
         start = 0
         batch_size = 100
+
+        fields = (
+            "buildType("
+            "id,name,projectName,projectId,"
+            "vcs-root-entries(vcs-root-entry(id,checkout-rules))"
+            ")"
+        )
 
         while True:
             locator_parts = [f"count:{batch_size}", f"start:{start}"]
@@ -251,7 +259,7 @@ class TeamCityClient:
             locator = ",".join(locator_parts)
             resp = self._request(
                 "GET",
-                f"/app/rest/buildTypes?locator={locator}",
+                f"/app/rest/buildTypes?locator={locator}&fields={fields}",
                 headers={"Accept": "application/json"},
             )
 
