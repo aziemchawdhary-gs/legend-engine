@@ -92,50 +92,34 @@ def _parse_build_type_ids(raw: Optional[str]) -> List[str]:
 
 
 def select_build_types_interactive(build_types: List[BuildType]) -> List[BuildType]:
-    """Present a numbered list and let the user select build configurations."""
+    """Present a TUI menu and let the user select build configurations."""
     if not build_types:
         print("No build configurations found.", file=sys.stderr)
         return []
 
-    print(f"\nAvailable build configurations ({len(build_types)}):\n")
-    for i, bt in enumerate(build_types, 1):
-        print(f"  {i:3d}. [{bt.id}] {bt.project_name} :: {bt.name}")
+    from simple_term_menu import TerminalMenu
 
-    print()
-    print("Enter selection (numbers separated by commas/spaces, ranges like 1-3, or 'all'):")
-    try:
-        raw = input("> ").strip()
-    except (EOFError, KeyboardInterrupt):
+    entries = [f"[{bt.id}] {bt.project_name} :: {bt.name}" for bt in build_types]
+
+    menu = TerminalMenu(
+        entries,
+        title=f"Select build configurations ({len(build_types)} available)  "
+              "[/=search, space=toggle, enter=confirm]",
+        multi_select=True,
+        show_multi_select_hint=True,
+        show_search_hint=True,
+        multi_select_select_on_accept=False,
+        multi_select_empty_ok=False,
+    )
+
+    menu.show()
+    selected_indices = menu.chosen_menu_indices
+
+    if selected_indices is None:
         print("\nSelection cancelled.", file=sys.stderr)
         return []
 
-    if raw.lower() == "all":
-        return list(build_types)
-
-    selected_indices: set = set()
-    for part in raw.replace(",", " ").split():
-        part = part.strip()
-        if "-" in part:
-            try:
-                start, end = part.split("-", 1)
-                for n in range(int(start), int(end) + 1):
-                    selected_indices.add(n)
-            except ValueError:
-                print(f"WARNING: Invalid range '{part}', skipping.", file=sys.stderr)
-        else:
-            try:
-                selected_indices.add(int(part))
-            except ValueError:
-                print(f"WARNING: Invalid number '{part}', skipping.", file=sys.stderr)
-
-    selected = []
-    for idx in sorted(selected_indices):
-        if 1 <= idx <= len(build_types):
-            selected.append(build_types[idx - 1])
-        else:
-            print(f"WARNING: Index {idx} out of range, skipping.", file=sys.stderr)
-
-    return selected
+    return [build_types[i] for i in selected_indices]
 
 
 def cmd_trigger(args: argparse.Namespace, config: Config) -> int:
