@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""tc-build: TeamCity Personal Build CLI.
+
+Entry-point script — can be run directly without pip install.
+"""
+
+import os
+import sys
+
+# Add the tool directory to sys.path so tc_build package is importable
+tool_dir = os.path.dirname(os.path.abspath(__file__))
+if tool_dir not in sys.path:
+    sys.path.insert(0, tool_dir)
+
+from tc_build.cli import main
+
+if __name__ == "__main__":
+    main()
+else:
+    # Also support being called as: ./tc-build (without __name__ == "__main__")
+    main()

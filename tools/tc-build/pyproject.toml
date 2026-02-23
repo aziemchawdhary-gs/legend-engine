@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "tc-build"
+version = "0.1.0"
+description = "TeamCity Personal Build CLI"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.25.0",
+    "tomli>=1.0.0; python_version < '3.11'",
+]
+
+[project.scripts]
+tc-build = "tc_build.cli:main"
