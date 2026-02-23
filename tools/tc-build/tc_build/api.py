@@ -43,6 +43,8 @@ class TeamCityClient:
         parsed = urlparse(self.server_url)
         self.origin = f"{parsed.scheme}://{parsed.netloc}"
 
+        self._csrf_token = None
+
         self.session = requests.Session()
         self.session.auth = (username, password)
         self.session.headers.update({
@@ -52,6 +54,31 @@ class TeamCityClient:
     def _url(self, path: str) -> str:
         """Build full URL from a path."""
         return f"{self.server_url}{path}"
+
+    def _fetch_csrf_token(self) -> str:
+        """Fetch a CSRF token from TeamCity.
+
+        GET /authenticationTest.html?csrf returns the token as plain text.
+        The token is cached for the lifetime of this client instance.
+        """
+        if self._csrf_token:
+            return self._csrf_token
+
+        url = self._url("/authenticationTest.html?csrf")
+        logger.debug("Fetching CSRF token from %s", url)
+        try:
+            resp = self.session.get(
+                url, timeout=self.timeout, verify=self.verify_ssl
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise TeamCityError(
+                f"Failed to fetch CSRF token: {exc}"
+            ) from exc
+
+        self._csrf_token = resp.text.strip()
+        logger.debug("Got CSRF token")
+        return self._csrf_token
 
     def _request(
         self,
@@ -63,6 +90,13 @@ class TeamCityClient:
         url = self._url(path)
         kwargs.setdefault("timeout", self.timeout)
         kwargs.setdefault("verify", self.verify_ssl)
+
+        # Add CSRF token for modifying requests
+        if method.upper() in ("POST", "PUT", "DELETE"):
+            headers = kwargs.get("headers", {})
+            if "X-TC-CSRF-Token" not in headers:
+                headers["X-TC-CSRF-Token"] = self._fetch_csrf_token()
+                kwargs["headers"] = headers
 
         logger.debug("%s %s", method.upper(), url)
 
