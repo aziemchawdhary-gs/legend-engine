@@ -25,3 +25,13 @@
 **/legend-engine-language-pure-grammar/src/main/antlr4/org/finos/legend/engine/language/pure/grammar/from/antlr4/core/gen/
 /welcome.pure
 /legend-engine-core/legend-engine-core-shared/legend-engine-shared-core/src/main/resources/legendExecutionVersion.json
+
+# Fuzzer-specific ignores
+results/
+fuzzer/.venv/
+__pycache__/
+*.pyc
+corpus/raw/
+corpus/processed/
+models/
+fuzzer/legend_engine_fuzzer.egg-info/
