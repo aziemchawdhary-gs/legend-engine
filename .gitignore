@@ -13,6 +13,7 @@
 # for temporary files, user local data, configs, etc.
 /temp
 /duckdb*
+.worktrees/
 
 # VS Code ignores
 .vscode
