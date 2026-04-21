@@ -228,6 +228,9 @@ function meta::external::language::java::transform::pureTypeToJavaType(conventio
            if($type == Map,
               | javaMap($typeArgs->at(0), $typeArgs->at(1))->listIfMulti($mult),
               |
+           if($type == Pair,
+              | javaPair($typeArgs->at(0), $typeArgs->at(1))->listIfMulti($mult),
+              |
            if($type->instanceOf(meta::pure::metamodel::type::Enumeration) || $type->instanceOf(meta::pure::metamodel::type::Class) || $type->instanceOf(Unit) || $type->instanceOf(Measure),
               {|
                 let class = $conventions->className($type);
@@ -244,7 +247,7 @@ function meta::external::language::java::transform::pureTypeToJavaType(conventio
                       ^meta::external::language::java::metamodel::Type();
                 );    
               }       
-   ))))))))))));
+   )))))))))))));
 }
 
 function meta::external::language::java::transform::stringType(     conventions:Conventions[1]): meta::external::language::java::metamodel::Type[1] { $conventions->stringType(     PureOne); }
