@@ -1004,17 +1004,33 @@ public class Library
         return col != null ? col : defaultValue;
     }
 
-    public static <K, V> Map<K, V> newMap(List<? extends Pair<? extends K, ? extends V>> pairs)
+    @SuppressWarnings("unchecked")
+    public static <K, V> Map<K, V> newMap(Object pairs)
     {
         org.eclipse.collections.api.map.MutableMap<K, V> map = Maps.mutable.empty();
-        if (pairs != null)
+        if (pairs == null)
         {
-            for (Pair<? extends K, ? extends V> p : pairs)
-            {
-                map.put(p.getOne(), p.getTwo());
-            }
+            return map;
         }
-        return map;
+        if (pairs instanceof Pair)
+        {
+            Pair<?, ?> p = (Pair<?, ?>) pairs;
+            map.put((K) p.getOne(), (V) p.getTwo());
+            return map;
+        }
+        if (pairs instanceof Iterable)
+        {
+            for (Object obj : (Iterable<?>) pairs)
+            {
+                if (obj instanceof Pair)
+                {
+                    Pair<?, ?> p = (Pair<?, ?>) obj;
+                    map.put((K) p.getOne(), (V) p.getTwo());
+                }
+            }
+            return map;
+        }
+        throw new IllegalArgumentException("Cannot build Map from " + pairs.getClass().getName());
     }
 
     public static <K, V> Map<K, V> put(Map<K, V> map, K key, V value)
