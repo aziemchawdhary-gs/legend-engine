@@ -226,10 +226,12 @@ function meta::external::language::java::transform::pureTypeToJavaType(conventio
               | $conventions->dateType($mult),
               |
            if($type == Map,
-              | javaMap($typeArgs->at(0), $typeArgs->at(1))->listIfMulti($mult),
+              | javaMap(if($typeArgs->size() > 0, | $typeArgs->at(0), | javaObject()),
+                        if($typeArgs->size() > 1, | $typeArgs->at(1), | javaObject()))->listIfMulti($mult),
               |
            if($type == Pair,
-              | javaPair($typeArgs->at(0), $typeArgs->at(1))->listIfMulti($mult),
+              | javaPair(if($typeArgs->size() > 0, | $typeArgs->at(0), | javaObject()),
+                         if($typeArgs->size() > 1, | $typeArgs->at(1), | javaObject()))->listIfMulti($mult),
               |
            if($type->instanceOf(meta::pure::metamodel::type::Enumeration) || $type->instanceOf(meta::pure::metamodel::type::Class) || $type->instanceOf(Unit) || $type->instanceOf(Measure),
               {|
