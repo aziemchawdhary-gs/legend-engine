@@ -19,7 +19,9 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.text.similarity.JaroWinklerSimilarity;
 import org.apache.commons.text.similarity.LevenshteinDistance;
 import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.factory.Maps;
 import org.eclipse.collections.api.list.MutableList;
+import org.eclipse.collections.api.tuple.Pair;
 import org.finos.legend.engine.plan.dependencies.domain.date.DayOfWeek;
 import org.finos.legend.engine.plan.dependencies.domain.date.DurationUnit;
 import org.finos.legend.engine.plan.dependencies.domain.date.PureDate;
@@ -40,6 +42,7 @@ import java.util.GregorianCalendar;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
@@ -999,6 +1002,26 @@ public class Library
     public static <T> T uniqueValueOnly(T col, T defaultValue)
     {
         return col != null ? col : defaultValue;
+    }
+
+    public static <K, V> Map<K, V> newMap(List<? extends Pair<? extends K, ? extends V>> pairs)
+    {
+        org.eclipse.collections.api.map.MutableMap<K, V> map = Maps.mutable.empty();
+        if (pairs != null)
+        {
+            for (Pair<? extends K, ? extends V> p : pairs)
+            {
+                map.put(p.getOne(), p.getTwo());
+            }
+        }
+        return map;
+    }
+
+    public static <K, V> Map<K, V> put(Map<K, V> map, K key, V value)
+    {
+        org.eclipse.collections.api.map.MutableMap<K, V> copy = Maps.mutable.withMap(map);
+        copy.put(key, value);
+        return copy;
     }
 
     public static <T> List<T> dropAt(List<T> col, long index, long count)
