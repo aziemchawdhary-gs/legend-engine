@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legend — Pure to Python DSL</title>
+<style>
+:root {
+  --bg:#F5F6F8; --panel:#FFFFFF; --ink:#16191F; --muted:#626B78;
+  --line:#E3E6EC; --line-soft:#EEF0F4;
+  --pure:#B45309; --pure-bg:#FBF4EC; --pure-line:#EAD9C2;
+  --py:#1D4ED8; --py-bg:#EEF3FD; --py-line:#CFDDF6;
+  --sans:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto} *{transition:none!important}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:20;background:rgba(245,246,248,.86);
+  backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:16px;padding:14px 24px}
+.topbar h1{font-size:15px;font-weight:680;letter-spacing:-.01em;margin:0}
+.topbar .sub{color:var(--muted);font-size:13px}
+.topbar .spacer{flex:1}
+.toggle{font:inherit;font-size:12.5px;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer}
+.toggle:hover{border-color:#cfd4dc}
+.toggle .on{color:var(--py);font-weight:650}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:236px minmax(0,1fr);gap:32px;
+  max-width:1280px;margin:0 auto;padding:28px 24px 96px}
+
+/* toc */
+nav.toc{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 88px);
+  overflow:auto;font-size:13px;padding-right:6px}
+nav.toc ul{list-style:none;margin:0;padding:0}
+nav.toc>ul>li.toc-sec{margin-bottom:14px}
+nav.toc .toc-sec>a{display:block;font-weight:650;letter-spacing:.02em;
+  text-transform:uppercase;font-size:11.5px;color:var(--ink);margin-bottom:6px}
+nav.toc .toc-sec>a .n{font-family:var(--mono);color:var(--py);margin-right:7px}
+nav.toc li li a{display:block;color:var(--muted);text-decoration:none;
+  padding:3px 0 3px 22px;border-left:2px solid transparent;line-height:1.35}
+nav.toc li li a:hover{color:var(--ink)}
+nav.toc a{text-decoration:none}
+nav.toc li li a.active{color:var(--ink);border-left-color:var(--py);font-weight:550}
+
+/* sections */
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--muted);display:flex;align-items:center;
+  gap:10px;margin:34px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.eyebrow:first-child{margin-top:0}
+.eyebrow .n{color:var(--py);font-weight:600}
+.eyebrow .count{margin-left:auto;color:#9aa3af;font-size:11px;border:1px solid var(--line);
+  border-radius:999px;padding:1px 9px}
+
+/* card */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+  margin:14px 0;overflow:hidden;box-shadow:0 1px 2px rgba(20,25,31,.03)}
+.card.illustrative{border-style:dashed}
+.card-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  padding:13px 16px;border-bottom:1px solid var(--line-soft)}
+.card-head .kind{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  color:var(--muted);background:#F2F4F7;border:1px solid var(--line);
+  padding:2px 7px;border-radius:6px;white-space:nowrap}
+.card.illustrative .kind{color:var(--pure);background:var(--pure-bg);border-color:var(--pure-line)}
+.card-head h3{font-family:var(--mono);font-size:14px;font-weight:600;margin:0;
+  letter-spacing:-.01em}
+.card-head .note{color:var(--muted);font-size:12.5px}
+
+/* the signature seam: Pure | Python */
+.panes{display:grid;grid-template-columns:1fr 1fr;position:relative}
+.panes::after{content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;
+  transform:translateX(-1px);
+  background:linear-gradient(180deg,var(--pure) 0%,var(--py) 100%);opacity:.5}
+.pane{min-width:0}
+.pane.pure{background:linear-gradient(180deg,var(--pure-bg),transparent 120px)}
+.pane.python{background:linear-gradient(180deg,var(--py-bg),transparent 120px)}
+.pane-label{display:flex;align-items:center;gap:8px;padding:8px 14px;
+  font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:650}
+.pane.pure .pane-label .lang{color:var(--pure)}
+.pane.python .pane-label .lang{color:var(--py)}
+.copy{margin-left:auto;font:inherit;font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--muted);background:transparent;border:1px solid var(--line);
+  border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--py);border-color:var(--py-line)}
+.copy.done{color:#15803d;border-color:#bbe2c4}
+pre{margin:0;padding:6px 16px 18px;overflow-x:auto}
+code{font-family:var(--mono);font-size:12.5px;line-height:1.62;color:#22272F;
+  white-space:pre;tab-size:2}
+
+/* stacked mode / responsive */
+body.stacked .panes{grid-template-columns:1fr}
+body.stacked .panes::after{left:0;right:0;top:50%;bottom:auto;width:auto;height:2px;
+  background:linear-gradient(90deg,var(--pure),var(--py))}
+body.stacked .pane.pure{border-bottom:1px solid var(--line-soft)}
+@media (max-width:980px){
+  .wrap{grid-template-columns:1fr}
+  nav.toc{position:static;max-height:none;margin-bottom:8px;
+    columns:2;font-size:12.5px}
+}
+@media (max-width:720px){
+  .panes{grid-template-columns:1fr}
+  .panes::after{left:0;right:0;top:auto;width:auto;height:2px;
+    background:linear-gradient(90deg,var(--pure),var(--py));
+    top:50%;transform:none}
+  .pane.pure{border-bottom:1px solid var(--line-soft)}
+  nav.toc{columns:1}
+}
+a:focus-visible,button:focus-visible{outline:2px solid var(--py);outline-offset:2px;border-radius:4px}
+.lede{color:var(--muted);font-size:13.5px;max-width:62ch;margin:2px 0 0}
+.lede code{font-size:12px;background:#EEF0F4;padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>Legend · Pure → Python DSL</h1>
+  <span class="sub">side-by-side mapping reference</span>
+  <span class="spacer"></span>
+  <button class="toggle" id="layoutToggle" type="button">
+    layout: <span class="on">side-by-side</span></button>
+</div>
+<div class="wrap">
+  <nav class="toc" aria-label="Contents">
+    <p class="lede">Each row pairs the original <strong>Pure</strong> (left) with the
+    equivalent <strong>Python DSL</strong> (right). Fully-qualified paths are shortened
+    to simple names for readability.</p>
+    <ul><li class="toc-sec"><a href="#sec-enumerations"><span class="n">01</span>Enumerations</a><ul><li><a href="#enumerations--colour---colour---externalenum">_Colour / Colour / ExternalEnum</a></li></ul></li><li class="toc-sec"><a href="#sec-classes"><span class="n">02</span>Classes</a><ul><li><a href="#classes--somedata">_SomeData</a></li><li><a href="#classes--astring-----name">_AString  &amp;  Name</a></li><li><a href="#classes--epochdate----fromepochdate">EpochDate -&gt; FromEpochDate</a></li><li><a href="#classes--s-person-------s-persona-------s-personb">_S_Person  &lt;-  _S_PersonA  &lt;-  _S_PersonB</a></li><li><a href="#classes--s-friendship------friendship">_S_Friendship  -&gt;  Friendship</a></li><li><a href="#classes--union-model">Union model</a></li><li><a href="#classes--primitive-nested-model">Primitive nested model</a></li><li><a href="#classes--x-------y---constraints">_X  &lt;-  _Y  (constraints)</a></li></ul></li><li class="toc-sec"><a href="#sec-mappings"><span class="n">03</span>Mappings</a><ul><li><a href="#mappings--simpleepochtodate">simpleEpochToDate</a></li><li><a href="#mappings--simplemodelmappingreverse">simpleModelMappingReverse</a></li><li><a href="#mappings--simplemodelmappingmissingproperty">simpleModelMappingMissingProperty</a></li><li><a href="#mappings--simpledatamapping">simpleDataMapping</a></li><li><a href="#mappings--sparsedatamapping">sparseDataMapping</a></li><li><a href="#mappings--enumnamemapping">enumNameMapping</a></li><li><a href="#mappings--externalenummapping">externalEnumMapping</a></li><li><a href="#mappings--externalenumvaluesmapping">externalEnumValuesMapping</a></li><li><a href="#mappings--externalenumvaluesmappingfilter">externalEnumValuesMappingFilter</a></li><li><a href="#mappings--simplemodelmappingwithmultiplesubtype">simpleModelMappingWithMultipleSubType</a></li><li><a href="#mappings--simplemodelmappingwithexplicitassert">simpleModelMappingWithExplicitAssert</a></li><li><a href="#mappings--simplemodelmappingwithimplicitassert">simpleModelMappingWithImplicitAssert</a></li><li><a href="#mappings--m">M</a></li><li><a href="#mappings--mappingwithnopropertyaccessonclass">MappingWithNoPropertyAccessOnClass</a></li><li><a href="#mappings--primitivemappingtest">PrimitiveMappingTest</a></li><li><a href="#mappings--primitivemappingtest2">PrimitiveMappingTest2</a></li></ul></li></ul>
+  </nav>
+  <main>
+    <section class="section" id="sec-enumerations"><div class="eyebrow"><span class="n">01</span> Enumerations <span class="count">1</span></div>
+<article class="card" id="enumerations--colour---colour---externalenum">
+  <header class="card-head">
+    <span class="kind">ENUM</span>
+    <h3>_Colour / Colour / ExternalEnum</h3>
+    <span class="note">source + target enums</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Enum _Colour      { ROUGE, VERT, BLEU }
+Enum Colour       { RED, GREEN, BLUE }
+Enum ExternalEnum { MONDAY, TUESDAY, FRIDAY }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class _Colour(Enumeration):      ROUGE = ev(); VERT = ev(); BLEU = ev()
+class Colour(Enumeration):       RED = ev();   GREEN = ev(); BLUE = ev()
+class ExternalEnum(Enumeration): MONDAY = ev(); TUESDAY = ev(); FRIDAY = ev()</code></pre>
+    </section>
+  </div>
+</article></section><section class="section" id="sec-classes"><div class="eyebrow"><span class="n">02</span> Classes <span class="count">8</span></div>
+<article class="card" id="classes--somedata">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>_SomeData</h3>
+    <span class="note">primitives, multiplicities, enum-typed property</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class _SomeData
+{
+   i  : Integer[0..1];
+   f  : Float[1];
+   d  : Decimal[*];
+   sd : StrictDate[*];
+   dt : DateTime[*];
+   b  : Boolean[2..4];
+   c  : _Colour[1];
+   s  : String[*];
+   cs : String[0..1];
+}</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class _SomeData(DomainClass):
+    i  = prop(Integer, ZERO_ONE)
+    f  = prop(Float, ONE)
+    d  = prop(Decimal, MANY)
+    sd = prop(StrictDate, MANY)
+    dt = prop(DateTime, MANY)
+    b  = prop(Boolean, Mult(2, 4))
+    c  = prop(_Colour, ONE)
+    s  = prop(String, MANY)
+    cs = prop(String, ZERO_ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--astring-----name">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>_AString  &amp;  Name</h3>
+    <span class="note">single-property classes</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class _AString { s    : String[1]; }
+Class Name     { name : String[1]; }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class _AString(DomainClass): s = prop(String, ONE)
+class Name(DomainClass):     name = prop(String, ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--epochdate----fromepochdate">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>EpochDate -&gt; FromEpochDate</h3>
+    <span class="note">source and target for the epoch mapping</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class EpochDate     { epochDate : Integer[1]; }
+Class FromEpochDate { epochDate : Integer[1]; d : Date[1]; }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class EpochDate(DomainClass):     epochDate = prop(Integer, ONE)
+class FromEpochDate(DomainClass): epochDate = prop(Integer, ONE); d = prop(Date, ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--s-person-------s-persona-------s-personb">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>_S_Person  &lt;-  _S_PersonA  &lt;-  _S_PersonB</h3>
+    <span class="note">inheritance chain (extends)</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class _S_Person  { fullName : String[1]; }
+Class _S_PersonA extends _S_Person  { aName : String[1]; }
+Class _S_PersonB extends _S_PersonA { bName : String[1]; }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class _S_Person(DomainClass):  fullName = prop(String, ONE)
+class _S_PersonA(_S_Person):   aName = prop(String, ONE)
+class _S_PersonB(_S_PersonA):  bName = prop(String, ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--s-friendship------friendship">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>_S_Friendship  -&gt;  Friendship</h3>
+    <span class="note">src/dest with nested reference holder (A)</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class A            { friendC : _S_Person[0..1]; }
+Class _S_Friendship
+{
+   friendA : _S_Person[1];
+   friendB : _S_Person[1];
+   friendC : A[0..1];
+}
+Class Friendship   // dest
+{
+   friendA : Person[1];
+   friendB : Person[1];
+   friendC : Person[0..1];
+}</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class A(DomainClass):           friendC = prop(_S_Person, ZERO_ONE)
+class _S_Friendship(DomainClass):
+    friendA = prop(_S_Person, ONE)
+    friendB = prop(_S_Person, ONE)
+    friendC = prop(A, ZERO_ONE)
+class Friendship(DomainClass):  # dest
+    friendA = prop(Person, ONE)
+    friendB = prop(Person, ONE)
+    friendC = prop(Person, ZERO_ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--union-model">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>Union model</h3>
+    <span class="note">source A/B + UnionSource, target UnionC/UnionTarget</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class UnionA      { fld : String[1]; }
+Class UnionB      { fld : String[1]; }
+Class UnionSource { a : UnionA[1]; b : UnionB[1]; }
+Class UnionC      { fld : String[1]; }            // unioned target
+Class UnionTarget { c : UnionC[*]; }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class UnionA(DomainClass):      fld = prop(String, ONE)
+class UnionB(DomainClass):      fld = prop(String, ONE)
+class UnionSource(DomainClass): a = prop(UnionA, ONE); b = prop(UnionB, ONE)
+class UnionC(DomainClass):      fld = prop(String, ONE)      # unioned target
+class UnionTarget(DomainClass): c = prop(UnionC, MANY)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="classes--primitive-nested-model">
+  <header class="card-head">
+    <span class="kind">CLASS</span>
+    <h3>Primitive nested model</h3>
+    <span class="note">primitive (StrictDate) as a mapping source</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class PrimitiveMappingSource        { d : StrictDate[1]; }
+Class PrimitiveMappingSourceWrapper { p : PrimitiveMappingSource[1]; }
+Class PrimitiveMappingDestInner     { d : StrictDate[1]; }
+Class PrimitiveMappingDest          { c : PrimitiveMappingDestInner[1]; }</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>class PrimSrc(DomainClass):   d = prop(StrictDate, ONE)
+class PrimSrcW(DomainClass):  p = prop(PrimSrc, ONE)
+class PrimInner(DomainClass): d = prop(StrictDate, ONE)
+class PrimDest(DomainClass):  c = prop(PrimInner, ONE)</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card illustrative" id="classes--x-------y---constraints">
+  <header class="card-head">
+    <span class="kind">CLASS · ILLUSTRATIVE</span>
+    <h3>_X  &lt;-  _Y  (constraints)</h3>
+    <span class="note">ILLUSTRATIVE — constraints are not in the runnable prototype</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Class _X
+[
+   TestConstraint( ~function: 1 &lt; $this.i )
+]
+{
+   i : Integer[1];
+}
+Class _Y extends _X
+[
+   TestConstraintChild( ~function: 2 &lt; $this.i &amp;&amp; $this.b )
+]
+{
+   b : Boolean[1];
+}</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code># proposed surface (not implemented/verified yet)
+class _X(DomainClass):
+    i = prop(Integer, ONE)
+    __constraints__ = [
+        constraint(&quot;TestConstraint&quot;, lambda this: 1 &lt; this.i),
+    ]
+class _Y(_X):
+    b = prop(Boolean, ONE)
+    __constraints__ = [
+        constraint(&quot;TestConstraintChild&quot;, lambda this: (2 &lt; this.i) &amp; this.b),
+    ]</code></pre>
+    </section>
+  </div>
+</article></section><section class="section" id="sec-mappings"><div class="eyebrow"><span class="n">03</span> Mappings <span class="count">16</span></div>
+<article class="card" id="mappings--simpleepochtodate">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleEpochToDate</h3>
+    <span class="note">date literal, floor, adjust, division</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleEpochToDate
+(
+  FromEpochDate : Pure
+  {
+    ~src EpochDate
+    epochDate : $src.epochDate,
+    d : %1970-01-01T00:00:00.0000000
+          -&gt;adjust(floor($src.epochDate / 1000), DurationUnit.MICROSECONDS)
+  }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleEpochToDate&quot;, [
+    pure_set(FromEpochDate, src=EpochDate, rules=lambda s: {
+        FromEpochDate.epochDate: s.epochDate,
+        FromEpochDate.d: pure.date(&quot;1970-01-01T00:00:00.0000000&quot;)
+            .adjust(pure.floor(s.epochDate / 1000), DurationUnit.MICROSECONDS),
+    })])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simplemodelmappingreverse">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleModelMappingReverse</h3>
+    <span class="note">string concatenation</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleModelMappingReverse
+(
+   _S_Person : Pure
+   {
+      ~src Person
+      fullName : $src.firstName + &#x27; &#x27; + $src.lastName
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleModelMappingReverse&quot;, [
+    pure_set(_S_Person, src=Person, rules=lambda s: {
+        _S_Person.fullName: s.firstName + &quot; &quot; + s.lastName})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simplemodelmappingmissingproperty">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleModelMappingMissingProperty</h3>
+    <span class="note">literal + property</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleModelMappingMissingProperty
+(
+   _S_Person : Pure
+   {
+      ~src Person
+      fullName : &#x27;Somebody &#x27; + $src.lastName
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleModelMappingMissingProperty&quot;, [
+    pure_set(_S_Person, src=Person, rules=lambda s: {
+        _S_Person.fullName: &quot;Somebody &quot; + s.lastName})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simpledatamapping">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleDataMapping</h3>
+    <span class="note">map/lambda, arithmetic, !, cast, + 3 EnumerationMappings</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleDataMapping
+(
+   SomeData : Pure
+   {
+      ~src _SomeData
+      i  : $src.i-&gt;map(n| $n * $n),
+      f  : 1.0 / $src.f,
+      d  : $src.d-&gt;map(n| $n + $n),
+      sd : $src.sd-&gt;map(d| $d-&gt;adjust(1, DurationUnit.DAYS))-&gt;cast(@StrictDate),
+      dt : $src.dt-&gt;map(t| $t-&gt;adjust(2, DurationUnit.HOURS))-&gt;cast(@DateTime),
+      b  : $src.b-&gt;map(b| !$b),
+      c  : EnumerationMapping ColourMapping:       $src.c,
+      c2 : EnumerationMapping ColourMappingInt:    $src.i,
+      c3 : EnumerationMapping ColourMappingString: $src.s
+   }
+
+   Colour : EnumerationMapping ColourMapping
+   { RED : _Colour.ROUGE, BLUE : _Colour.BLEU, GREEN : _Colour.VERT }
+
+   Colour : EnumerationMapping ColourMappingInt
+   { RED : 1, BLUE : 2, GREEN : 3 }
+
+   Colour : EnumerationMapping ColourMappingString
+   { RED : &#x27;ROUGE&#x27;, BLUE : &#x27;BLEU&#x27;, GREEN : &#x27;VERT&#x27; }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleDataMapping&quot;, [
+    pure_set(SomeData, src=_SomeData, rules=lambda s: {
+        SomeData.i:  s.i.map(lambda n: n * n),
+        SomeData.f:  1.0 / s.f,
+        SomeData.d:  s.d.map(lambda n: n + n),
+        SomeData.sd: s.sd.map(lambda d: d.adjust(1, DurationUnit.DAYS)).cast(StrictDate),
+        SomeData.dt: s.dt.map(lambda t: t.adjust(2, DurationUnit.HOURS)).cast(DateTime),
+        SomeData.b:  s.b.map(lambda b: ~b),
+        SomeData.c:  via_enum(&quot;ColourMapping&quot;,       s.c),
+        SomeData.c2: via_enum(&quot;ColourMappingInt&quot;,    s.i),
+        SomeData.c3: via_enum(&quot;ColourMappingString&quot;, s.s),
+    }),
+    enum_mapping(Colour, &quot;ColourMapping&quot;,
+                 {Colour.RED: _Colour.ROUGE, Colour.BLUE: _Colour.BLEU, Colour.GREEN: _Colour.VERT}),
+    enum_mapping(Colour, &quot;ColourMappingInt&quot;,
+                 {Colour.RED: 1, Colour.BLUE: 2, Colour.GREEN: 3}),
+    enum_mapping(Colour, &quot;ColourMappingString&quot;,
+                 {Colour.RED: &quot;ROUGE&quot;, Colour.BLUE: &quot;BLEU&quot;, Colour.GREEN: &quot;VERT&quot;}),
+])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--sparsedatamapping">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>sparseDataMapping</h3>
+    <span class="note">trivial passthrough (sparseDataMapping2 is identical)</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping sparseDataMapping
+(
+   SomeOptionalData : Pure
+   {
+      ~src _AString
+      s1 : $src.s
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;sparseDataMapping&quot;, [
+    pure_set(SomeOptionalData, src=_AString, rules=lambda s: {
+        SomeOptionalData.s1: s.s})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--enumnamemapping">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>enumNameMapping</h3>
+    <span class="note">enum .name accessor</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping enumNameMapping
+(
+   Name : Pure
+   {
+      ~src _SomeData
+      name : $src.c.name
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;enumNameMapping&quot;, [
+    pure_set(Name, src=_SomeData, rules=lambda s: {
+        Name.name: s.c.name})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--externalenummapping">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>externalEnumMapping</h3>
+    <span class="note">enum literal reference</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping externalEnumMapping
+(
+   Name : Pure
+   {
+      ~src _SomeData
+      name : $src.c.name + &#x27; on &#x27; + ExternalEnum.FRIDAY.name
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;externalEnumMapping&quot;, [
+    pure_set(Name, src=_SomeData, rules=lambda s: {
+        Name.name: s.c.name + &quot; on &quot; + ExternalEnum.FRIDAY.name})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--externalenumvaluesmapping">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>externalEnumValuesMapping</h3>
+    <span class="note">enumValues(), joinStrings</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping externalEnumValuesMapping
+(
+   Name : Pure
+   {
+      ~src _SomeData
+      name : $src.c.name + &#x27; on &#x27; + ExternalEnum-&gt;enumValues().name-&gt;joinStrings(&#x27;-&#x27;)
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;externalEnumValuesMapping&quot;, [
+    pure_set(Name, src=_SomeData, rules=lambda s: {
+        Name.name: s.c.name + &quot; on &quot;
+                   + ExternalEnum.enumValues().name.joinStrings(&quot;-&quot;)})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--externalenumvaluesmappingfilter">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>externalEnumValuesMappingFilter</h3>
+    <span class="note">~filter with in(...)</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping externalEnumValuesMappingFilter
+(
+   Name : Pure
+   {
+      ~src _SomeData
+      ~filter $src.cs-&gt;in(Colour-&gt;enumValues().name)
+      name : $src.c.name + &#x27; on &#x27; + ExternalEnum-&gt;enumValues().name-&gt;joinStrings(&#x27;-&#x27;)
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;externalEnumValuesMappingFilter&quot;, [
+    pure_set(Name, src=_SomeData,
+        filter=lambda s: s.cs.in_(Colour.enumValues().name),
+        rules=lambda s: {
+            Name.name: s.c.name + &quot; on &quot;
+                       + ExternalEnum.enumValues().name.joinStrings(&quot;-&quot;)})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simplemodelmappingwithmultiplesubtype">
+  <header class="card-head">
+    <span class="kind">MAPPING · UNION</span>
+    <h3>simpleModelMappingWithMultipleSubType</h3>
+    <span class="note">3 Person set-impls unioned over (A,B); Friendship props target ids</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleModelMappingWithMultipleSubType
+(
+   Friendship : Pure
+   {
+      ~src _S_Friendship
+      friendA[A] : $src.friendA-&gt;cast(@_S_PersonA),
+      friendB[B] : $src.friendB-&gt;cast(@_S_PersonA),
+      friendC[C] : if($src.friendC.friendC-&gt;isNotEmpty()
+                      &amp;&amp; $src.friendC.friendC-&gt;toOne()-&gt;instanceOf(_S_PersonB),
+                      | $src.friendC.friendC-&gt;cast(@_S_PersonB),
+                      | [])
+   }
+
+   Person[A] : Pure
+   {
+      ~src _S_PersonA
+      firstName : $src.fullName-&gt;substring(0, $src.fullName-&gt;indexOf(&#x27; &#x27;)) + $src.aName,
+      lastName  : $src.fullName-&gt;substring($src.fullName-&gt;indexOf(&#x27; &#x27;) + 1, $src.fullName-&gt;length())
+   }
+   Person[B] : Pure { ~src _S_PersonA  ... (same body, aName) }
+   Person[C] : Pure { ~src _S_PersonB  ... (same body, bName) }
+
+   *Person[union] : Operation
+   {
+      union_OperationSetImplementation_1__SetImplementation_MANY_(A, B)
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>def _person_rules(name_prop):
+    return lambda s: {
+        Person.firstName: s.fullName.substring(0, s.fullName.indexOf(&quot; &quot;)) + getattr(s, name_prop),
+        Person.lastName:  s.fullName.substring(s.fullName.indexOf(&quot; &quot;) + 1, s.fullName.length()),
+    }
+pA = pure_set(Person, id=&quot;A&quot;, src=_S_PersonA, rules=_person_rules(&quot;aName&quot;))
+pB = pure_set(Person, id=&quot;B&quot;, src=_S_PersonA, rules=_person_rules(&quot;aName&quot;))
+pC = pure_set(Person, id=&quot;C&quot;, src=_S_PersonB, rules=_person_rules(&quot;bName&quot;))
+pU = union_set(Person, id=&quot;union&quot;, members=[pA, pB], root=True)
+
+friendship = pure_set(Friendship, src=_S_Friendship, rules=lambda s: {
+    Friendship.friendA[&quot;A&quot;]: s.friendA.cast(_S_PersonA),
+    Friendship.friendB[&quot;B&quot;]: s.friendB.cast(_S_PersonA),
+    Friendship.friendC[&quot;C&quot;]: pure.if_(
+        s.friendC.friendC.isNotEmpty()
+            &amp; s.friendC.friendC.toOne().instanceOf(_S_PersonB),
+        s.friendC.friendC.cast(_S_PersonB),
+        []),
+})
+Mapping(&quot;simpleModelMappingWithMultipleSubType&quot;,
+        [friendship, pA, pB, pC, pU])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simplemodelmappingwithexplicitassert">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleModelMappingWithExplicitAssert</h3>
+    <span class="note">if with a multi-statement branch (seq)</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleModelMappingWithExplicitAssert
+(
+   Name : Pure
+   {
+      ~src _AString
+      name : if($src.s-&gt;isNoShorterThan(10),
+                | assert($src.s-&gt;length() &gt;= 0);&#x27;ok&#x27;;,
+                | &#x27;not ok&#x27;)
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleModelMappingWithExplicitAssert&quot;, [
+    pure_set(Name, src=_AString, rules=lambda s: {
+        Name.name: pure.if_(s.s.isNoShorterThan(10),
+                            pure.seq(pure.assert_(s.s.length() &gt;= 0), &quot;ok&quot;),
+                            &quot;not ok&quot;)})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--simplemodelmappingwithimplicitassert">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>simpleModelMappingWithImplicitAssert</h3>
+    <span class="note">if / else</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping simpleModelMappingWithImplicitAssert
+(
+   Name : Pure
+   {
+      ~src _AString
+      name : if($src.s-&gt;isNoShorterThan(10), | &#x27;ok&#x27;, | &#x27;not ok&#x27;)
+   }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;simpleModelMappingWithImplicitAssert&quot;, [
+    pure_set(Name, src=_AString, rules=lambda s: {
+        Name.name: pure.if_(s.s.isNoShorterThan(10), &quot;ok&quot;, &quot;not ok&quot;)})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--m">
+  <header class="card-head">
+    <span class="kind">MAPPING · UNION</span>
+    <h3>M</h3>
+    <span class="note">the canonical union: id-scoped target props + ~filter + Operation</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping M
+(
+  *UnionTarget : Pure
+  {
+    ~src UnionSource
+    c[c1] : $src.a,
+    c[c2] : $src.b
+  }
+
+  *UnionC[c_value] : Operation
+  {
+    union_OperationSetImplementation_1__SetImplementation_MANY_(c1, c2)
+  }
+
+  UnionC[c1] : Pure
+  {
+    ~src UnionA
+    ~filter $src.fld-&gt;isNotEmpty()
+    fld : $src.fld + &#x27;_a&#x27;
+  }
+
+  UnionC[c2] : Pure
+  {
+    ~src UnionB
+    fld : $src.fld + &#x27;_b&#x27;
+  }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>ut  = pure_set(UnionTarget, src=UnionSource, root=True,
+               rules=lambda s: {UnionTarget.c[&quot;c1&quot;]: s.a,
+                                UnionTarget.c[&quot;c2&quot;]: s.b})
+uc1 = pure_set(UnionC, id=&quot;c1&quot;, src=UnionA,
+               filter=lambda s: s.fld.isNotEmpty(),
+               rules=lambda s: {UnionC.fld: s.fld + &quot;_a&quot;})
+uc2 = pure_set(UnionC, id=&quot;c2&quot;, src=UnionB,
+               rules=lambda s: {UnionC.fld: s.fld + &quot;_b&quot;})
+ucU = union_set(UnionC, id=&quot;c_value&quot;, members=[uc1, uc2], root=True)
+
+Mapping(&quot;M&quot;, [ut, ucU, uc1, uc2])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--mappingwithnopropertyaccessonclass">
+  <header class="card-head">
+    <span class="kind">MAPPING · M2M</span>
+    <h3>MappingWithNoPropertyAccessOnClass</h3>
+    <span class="note">call a user function by path; empty collection</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping MappingWithNoPropertyAccessOnClass
+(
+  *Target : Pure
+  {
+    ~src A
+    id : alloy::f($src, [])
+    i  : []
+  }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;MappingWithNoPropertyAccessOnClass&quot;, [
+    pure_set(Target, src=SrcA, root=True, rules=lambda s: {
+        Target.id: pure.call(&quot;...::alloy::f&quot;, s, []),
+        Target.i:  []})])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--primitivemappingtest">
+  <header class="card-head">
+    <span class="kind">MAPPING · UNION</span>
+    <h3>PrimitiveMappingTest</h3>
+    <span class="note">id-scoped prop targets another Pure set-impl (no Operation); primitive source</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping PrimitiveMappingTest
+(
+  *PrimitiveMappingDest : Pure
+  {
+    ~src PrimitiveMappingSource
+    c[mydate] : $src.d
+  }
+
+  PrimitiveMappingDestInner[mydate] : Pure
+  {
+    ~src StrictDate
+    d : $src
+  }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>prim_inner = pure_set(PrimInner, id=&quot;mydate&quot;, src=StrictDate,
+                      rules=lambda s: {PrimInner.d: s})   # d : $src
+
+Mapping(&quot;PrimitiveMappingTest&quot;, [
+    pure_set(PrimDest, src=PrimSrc, root=True,
+             rules=lambda s: {PrimDest.c[&quot;mydate&quot;]: s.d}),
+    prim_inner])</code></pre>
+    </section>
+  </div>
+</article>
+<article class="card" id="mappings--primitivemappingtest2">
+  <header class="card-head">
+    <span class="kind">MAPPING · UNION</span>
+    <h3>PrimitiveMappingTest2</h3>
+    <span class="note">as above, with a nested source access</span>
+  </header>
+  <div class="panes">
+    <section class="pane pure">
+      <div class="pane-label"><span class="lang">Pure</span></div>
+      <pre><code>Mapping PrimitiveMappingTest2
+(
+  *PrimitiveMappingDest : Pure
+  {
+    ~src PrimitiveMappingSourceWrapper
+    c[mydate] : $src.p.d
+  }
+
+  PrimitiveMappingDestInner[mydate] : Pure
+  {
+    ~src StrictDate
+    d : $src
+  }
+)</code></pre>
+    </section>
+    <section class="pane python">
+      <div class="pane-label"><span class="lang">Python DSL</span>
+        <button class="copy" type="button" aria-label="Copy Python">copy</button></div>
+      <pre><code>Mapping(&quot;PrimitiveMappingTest2&quot;, [
+    pure_set(PrimDest, src=PrimSrcW, root=True,
+             rules=lambda s: {PrimDest.c[&quot;mydate&quot;]: s.p.d}),
+    prim_inner])</code></pre>
+    </section>
+  </div>
+</article></section>
+  </main>
+</div>
+<script>
+const t=document.getElementById('layoutToggle'),on=t.querySelector('.on');
+t.addEventListener('click',()=>{document.body.classList.toggle('stacked');
+  on.textContent=document.body.classList.contains('stacked')?'stacked':'side-by-side';});
+document.querySelectorAll('.copy').forEach(b=>b.addEventListener('click',async()=>{
+  const code=b.closest('.pane').querySelector('code').innerText;
+  try{await navigator.clipboard.writeText(code);b.textContent='copied';b.classList.add('done');
+    setTimeout(()=>{b.textContent='copy';b.classList.remove('done');},1300);}catch(e){}
+}));
+const links=[...document.querySelectorAll('nav.toc li li a')];
+const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+const obs=new IntersectionObserver(es=>{es.forEach(e=>{
+  const a=map.get(e.target.id); if(!a)return;
+  if(e.isIntersecting){links.forEach(l=>l.classList.remove('active'));a.classList.add('active');}
+});},{rootMargin:'-20% 0px -70% 0px'});
+document.querySelectorAll('.card').forEach(c=>obs.observe(c));
+</script>
+</body>
+</html>
