@@ -238,7 +238,7 @@ function meta::pure::router::routing::prevalFunctionExpressionIfRequired(fe:Func
                                                         );
                                                   );
 
-                                                $tmpFe->meta::pure::router::preeval::preval($inScopeVars->putAll($f->openVariableValues()), $extensions, $debug);
+                                                $tmpFe->meta::pure::router::preeval::preval($inScopeVars->putAll($f->openVariableValues()), $state->routingStateRuntime(), $extensions, $debug);
                                                 ,
                                             | $fe
                                          ),
@@ -761,6 +761,17 @@ function meta::pure::router::routing::varToString(a:Any[1]):String[1]
 function meta::pure::router::routing::isGetAllFunction(f:Function<Any>[1]):Boolean[1]
 {
   $f == getAll_Class_1__T_MANY_ || $f == getAllVersions_Class_1__T_MANY_ || $f == getAll_Class_1__Date_1__T_MANY_ || $f == getAll_Class_1__Date_1__Date_1__T_MANY_ || $f == getAllVersionsInRange_Class_1__Date_1__Date_1__T_MANY_ || $f == getAllForEachDate_Class_1__Date_MANY__T_MANY_
+}
+
+// Extract the runtime carried by the RoutingState's StoreRoutingStrategy, if any. Returns empty
+// for platform/external-format strategies. Used to thread the runtime into preval so the
+// milestoning-strip rewrite can decide whether it applies.
+function meta::pure::router::routing::routingStateRuntime(state:RoutingState[1]):meta::core::runtime::Runtime[0..1]
+{
+  $state.routingStrategy->match([
+    s:meta::pure::router::store::metamodel::StoreRoutingStrategy[1] | $s.runtime,
+    a:meta::pure::router::metamodel::RoutingStrategy[1]             | []->cast(@meta::core::runtime::Runtime)
+  ])
 }
 
 function meta::pure::router::routing::shouldStop(f:Function<Any>[1], extensions:meta::pure::extension::Extension[*]):Boolean[1]

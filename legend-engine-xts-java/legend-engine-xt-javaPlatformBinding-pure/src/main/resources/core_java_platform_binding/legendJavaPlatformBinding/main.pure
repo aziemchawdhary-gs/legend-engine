@@ -39,6 +39,10 @@ Class meta::pure::executionPlan::platformBinding::legendJava::GenerationContext
    nodeInfos                 : NodeInfo[*];
    baseProject               : Project[0..1];
    suppliedClassesForGeneration : meta::pure::metamodel::type::Class<Any>[*];
+   // When true, the M2M in-memory readers skip generated milestoning properties
+   // (businessDate/processingDate) when validating input JSON/XML structure.
+   // Populated in prepareGenerationContext from $plan.runtime->isPureM2MRuntime().
+   ignoreMilestoning         : Boolean[1] = false;
 }
 
 Class meta::pure::executionPlan::platformBinding::legendJava::NodeInfo

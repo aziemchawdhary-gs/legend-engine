@@ -218,6 +218,16 @@ function meta::pure::executionPlan::platformBinding::typeInfo::allPropertiesWith
    $info->allProperties($info->forClass($class))->filter(p | !$p->hasGeneratedMilestoningPropertyStereotype())
 }
 
+// Like allProperties, but drops only the auto-generated milestoning DATE fields
+// (businessDate / processingDate). Retains other generated milestoning properties
+// such as reference-property AllVersions overloads (e.g. vehicleAllVersions).
+// Used by the M2M in-memory readers when the router flags the runtime as pure-M2M
+// so input JSON/XML need not carry the class's own milestoning date fields.
+function meta::pure::executionPlan::platformBinding::typeInfo::allPropertiesWithoutGeneratedMilestoningDates(info:TypeInfoSet[1], class:Class<Any>[1]): Property<Nil,Any|*>[*]
+{
+   $info->allProperties($info->forClass($class))->filter(p | !$p->hasGeneratedMilestoningDatePropertyStereotype())
+}
+
 function meta::pure::executionPlan::platformBinding::typeInfo::allProperties(info:TypeInfoSet[1], classInfo:ClassTypeInfo[1]): Property<Nil,Any|*>[*]
 {
    $classInfo.supertypes->fold(

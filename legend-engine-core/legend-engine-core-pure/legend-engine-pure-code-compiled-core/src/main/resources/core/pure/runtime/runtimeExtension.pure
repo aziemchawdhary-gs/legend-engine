@@ -100,6 +100,18 @@ function meta::core::runtime::connectionByElementFailSafe(runtime:Runtime[1], st
    );
 }
 
+// True iff every connection in the runtime is a Model-store connection.
+// M2M2R (relational connection present) fails this check.
+function meta::pure::router::runtime::isPureM2MRuntime(runtime:meta::core::runtime::Runtime[1]):Boolean[1]
+{
+   $runtime.connectionStores.connection->forAll(c |
+      $c->instanceOf(meta::external::store::model::ModelConnection)     ||
+      $c->instanceOf(meta::external::store::model::JsonModelConnection) ||
+      $c->instanceOf(meta::external::store::model::XmlModelConnection)  ||
+      $c->instanceOf(meta::external::store::model::ModelChainConnection)
+   )
+}
+
 function meta::core::runtime::getMappingsFromRuntime(runtime:Runtime[0..1]):Mapping[*]
 {
    if($runtime->isNotEmpty(),|$runtime.connectionStores->filter(c | $c.connection->instanceOf(ModelChainConnection)).connection->cast(@ModelChainConnection).mappings,|[]);

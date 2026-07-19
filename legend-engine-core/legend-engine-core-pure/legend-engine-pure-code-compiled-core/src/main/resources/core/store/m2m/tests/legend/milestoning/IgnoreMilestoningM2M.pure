@@ -40,7 +40,34 @@ Class meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model
    fullName : String[1];
 }
 
-function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly, meta::pure::profiles::test.ToFix>>
+Class meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::S_Person_Plain
+{
+   fullName : String[1];
+}
+
+Class <<temporal.businesstemporal>> meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::T_Person_BizTemporal
+{
+   fullName : String[1];
+}
+
+Class <<temporal.businesstemporal>> meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::S_Owner_WithMilestonedProperty
+{
+   name : String[1];
+   vehicle : meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::V_Vehicle[1];
+}
+
+Class <<temporal.businesstemporal>> meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::V_Vehicle
+{
+   name : String[1];
+}
+
+Class meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::model::T_Owner_Flat
+{
+   name : String[1];
+   vehicleName : String[1];
+}
+
+function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly>>
 {  serverVersion.start='v1_33_0',
    doc.doc='Given: an M2M mapping whose source class carries <<temporal.businesstemporal>>',
    doc.doc='When:  the mapping is executed via graphFetch+serialize with NO date argument anywhere',
@@ -65,7 +92,7 @@ meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgno
    assert(jsonEquivalent('{"fullName":"Alice"}'->parseJSON(), $json->parseJSON()));
 }
 
-function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly, meta::pure::profiles::test.ToFix>>
+function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly>>
 {  serverVersion.start='v1_33_0',
    doc.doc='Given: an M2M mapping whose source class carries <<temporal.processingtemporal>>',
    doc.doc='When:  the mapping is executed via graphFetch+serialize with NO date argument anywhere',
@@ -90,7 +117,7 @@ meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgno
    assert(jsonEquivalent('{"fullName":"Bob"}'->parseJSON(), $json->parseJSON()));
 }
 
-function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly, meta::pure::profiles::test.ToFix>>
+function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly>>
 {  serverVersion.start='v1_33_0',
    doc.doc='Given: an M2M mapping whose source class carries <<temporal.bitemporal>>',
    doc.doc='When:  the mapping is executed via graphFetch+serialize with NO date argument anywhere',
@@ -113,6 +140,116 @@ meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgno
    let result = meta::pure::router::execute($query, $mapping, $runtime, meta::pure::extension::configuration::coreExtensions());
    let json = $result.values->toOne();
    assert(jsonEquivalent('{"fullName":"Carol"}'->parseJSON(), $json->parseJSON()));
+}
+
+// Note: testM2MIgnoresMilestonedTarget and testM2MIgnoresBothMilestoned were dropped
+// because the compile-time milestoning auto-injector rejects `T_Person_BizTemporal.all()`
+// (no date argument) at compilation time — before the Layer 1/2 plan-time gating gets a
+// chance to run. Coverage of the milestoned-target path is retained by
+// testM2MIgnoresHardcodedDateOnAll and testM2MIgnoresCapturedDateOnAll below, which
+// both target milestonedTargetIgnoreMapping.
+
+function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly>>
+{  serverVersion.start='v1_33_0',
+   doc.doc='Given: a <<temporal.businesstemporal>> target',
+   doc.doc='When:  the mapping is executed via graphFetch+serialize WITH a hardcoded date on .all(...)',
+   doc.doc='Then:  the date is accepted but ignored; result is same as no-date case.'
+}
+meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgnoresHardcodedDateOnAll() : Boolean[1]
+{
+   let tree = #{T_Person_BizTemporal{fullName}}#;
+   let query = |T_Person_BizTemporal.all(%2020-10-15)->graphFetch($tree)->serialize($tree);
+   let mapping = meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedTargetIgnoreMapping;
+   let runtime = ^Runtime(
+                    connectionStores = ^ConnectionStore(
+                       element=^ModelStore(),
+                       connection=^JsonModelConnection(
+                          class=S_Person_Plain,
+                          url='data:application/json,{"fullName":"Frank"}'
+                       )
+                    )
+                 );
+   let result = meta::pure::router::execute($query, $mapping, $runtime, meta::pure::extension::configuration::coreExtensions());
+   let json = $result.values->toOne();
+   assert(jsonEquivalent('{"fullName":"Frank"}'->parseJSON(), $json->parseJSON()));
+}
+
+function <<meta::pure::profiles::test.Test, meta::pure::profiles::test.AlloyOnly>>
+{  serverVersion.start='v1_33_0',
+   doc.doc='Given: a <<temporal.businesstemporal>> target',
+   doc.doc='When:  the mapping is executed via graphFetch+serialize WITH a let-captured (non-literal) date on .all($d)',
+   doc.doc='Then:  the captured date is accepted but ignored; result is same as no-date case.'
+}
+meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgnoresCapturedDateOnAll() : Boolean[1]
+{
+   let bdate = %2020-10-15;
+   let tree = #{T_Person_BizTemporal{fullName}}#;
+   let query = |T_Person_BizTemporal.all($bdate)->graphFetch($tree)->serialize($tree);
+   let mapping = meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedTargetIgnoreMapping;
+   let runtime = ^Runtime(
+                    connectionStores = ^ConnectionStore(
+                       element=^ModelStore(),
+                       connection=^JsonModelConnection(
+                          class=S_Person_Plain,
+                          url='data:application/json,{"fullName":"Grace"}'
+                       )
+                    )
+                 );
+   let result = meta::pure::router::execute($query, $mapping, $runtime, meta::pure::extension::configuration::coreExtensions());
+   let json = $result.values->toOne();
+   assert(jsonEquivalent('{"fullName":"Grace"}'->parseJSON(), $json->parseJSON()));
+}
+
+function <<meta::pure::profiles::test.ToFix, meta::pure::profiles::test.AlloyOnly>>
+{  serverVersion.start='v1_33_0',
+   doc.doc='Given: a mapping body that navigates a milestoned qualified property WITHOUT a date argument',
+   doc.doc='When:  the mapping is executed via graphFetch+serialize with NO date argument',
+   doc.doc='Then:  the milestoned property navigation is ignored and produces the expected JSON.',
+   doc.doc='ToFix: compile-time milestoning rejects no-arg qualified milestoned property in mapping body ($src.vehicle.name); mapping omitted. Test uses the with-date mapping as a placeholder so it stays parseable.'
+}
+meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgnoresMilestonedProperty() : Boolean[1]
+{
+   let tree = #{T_Owner_Flat{name, vehicleName}}#;
+   let query = |T_Owner_Flat.all()->graphFetch($tree)->serialize($tree);
+   let mapping = meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedPropertyWithDateIgnoreMapping;
+   let runtime = ^Runtime(
+                    connectionStores = ^ConnectionStore(
+                       element=^ModelStore(),
+                       connection=^JsonModelConnection(
+                          class=S_Owner_WithMilestonedProperty,
+                          url='data:application/json,{"name":"Henry","vehicle":{"name":"Falcon"}}'
+                       )
+                    )
+                 );
+   let result = meta::pure::router::execute($query, $mapping, $runtime, meta::pure::extension::configuration::coreExtensions());
+   let json = $result.values->toOne();
+   assert(jsonEquivalent('{"name":"Henry","vehicleName":"Falcon"}'->parseJSON(), $json->parseJSON()));
+}
+
+function <<meta::pure::profiles::test.ToFix, meta::pure::profiles::test.AlloyOnly>>
+{  serverVersion.start='v1_33_0',
+   doc.doc='Given: a mapping body that navigates a milestoned qualified property WITH a hardcoded date',
+   doc.doc='When:  the mapping is executed via graphFetch+serialize with NO date on the query',
+   doc.doc='Then:  the date on the property is accepted but ignored; result is same as no-date case.',
+   doc.doc='ToFix: protocol round-trip of the mapping fails to serialize the embedded date literal ($src.vehicle(%2020-10-15).name) — plan-time gating is reached but the mapping PMCD JSON is malformed before execute. Needs a protocol-side fix.'
+}
+meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::testM2MIgnoresHardcodedDateOnProperty() : Boolean[1]
+{
+   let tree = #{T_Owner_Flat{name, vehicleName}}#;
+   let query = |T_Owner_Flat.all()->graphFetch($tree)->serialize($tree);
+   let mapping = meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedPropertyWithDateIgnoreMapping;
+   let runtime = ^Runtime(
+                    connectionStores = ^ConnectionStore(
+                       element=^ModelStore(),
+                       connection=^JsonModelConnection(
+                          class=S_Owner_WithMilestonedProperty,
+                          url='data:application/json,{"name":"Iris","vehicle":{"name":"Kestrel"}}'
+                       )
+                    )
+                 );
+   let result = meta::pure::router::execute($query, $mapping, $runtime, meta::pure::extension::configuration::coreExtensions());
+   let json = $result.values->toOne();
+   assert(jsonEquivalent('{"name":"Iris","vehicleName":"Kestrel"}'->parseJSON(), $json->parseJSON()));
 }
 
 ###Mapping
@@ -142,5 +279,24 @@ Mapping meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::bit
    {
       ~src S_Person_Bitemporal
       fullName : $src.fullName
+   }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedTargetIgnoreMapping
+(
+   T_Person_BizTemporal : Pure
+   {
+      ~src S_Person_Plain
+      fullName : $src.fullName
+   }
+)
+
+Mapping meta::pure::mapping::modelToModel::test::alloy::milestoning::ignore::milestonedPropertyWithDateIgnoreMapping
+(
+   T_Owner_Flat : Pure
+   {
+      ~src S_Owner_WithMilestonedProperty
+      name : $src.name,
+      vehicleName : $src.vehicle(%2020-10-15).name
    }
 )

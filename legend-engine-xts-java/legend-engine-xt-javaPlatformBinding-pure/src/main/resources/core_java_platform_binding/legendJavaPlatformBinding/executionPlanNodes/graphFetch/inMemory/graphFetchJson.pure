@@ -352,7 +352,14 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
 
 function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::platformBinding::legendJava::graphFetch::storeStreamReading::json::validateMultiplicities(class:meta::pure::metamodel::type::Class<Any>[1], context:GenerationContext[1]): String[1]
 {
-   $context.typeInfos->allProperties($class)->map({p|
+   // When ignoreMilestoning is on, skip the multiplicity check entirely for the auto-generated
+   // businessDate/processingDate properties. The companion site is returnCheckedObject below,
+   // which keeps allProperties(...) but relaxes the per-property toOne/toZeroOne handling for
+   // the same set of properties. Both sites express the same policy ("skip/relax milestoning
+   // date fields under ignoreMilestoning") in two vocabularies because this call site drives
+   // defect generation (drop the property) while the other drives generated-code assignment
+   // (keep the field declared, tolerate empty).
+   if($context.ignoreMilestoning, |$context.typeInfos->allPropertiesWithoutGeneratedMilestoningDates($class), |$context.typeInfos->allProperties($class))->map({p|
       let variable = '_'+$context.conventions->fieldName($p);
       let expected = $p.multiplicity->printMultiplicity();
 
@@ -410,10 +417,14 @@ function <<access.private>> meta::pure::mapping::modelToModel::executionPlan::pl
 
    let declaresAndGetters = $context.typeInfos->allProperties($class)->map({p|
       let variable = $conventions->fieldName($p);
-      let value    = if($p.multiplicity->isToOne(),
+      // When ignoreMilestoning is on and this is an auto-generated milestoning date field
+      // (businessDate / processingDate), the input may legitimately omit it. Fall back to
+      // isZeroOne semantics so the assignment does not crash on an empty list.
+      let treatAsZeroOne = $context.ignoreMilestoning && $p->meta::pure::milestoning::hasGeneratedMilestoningDatePropertyStereotype();
+      let value    = if($p.multiplicity->isToOne() && !$treatAsZeroOne,
                         | '_'+$variable+'.get(0)',
                         |
-                     if($p.multiplicity->isZeroOne(),
+                     if($p.multiplicity->isZeroOne() || $treatAsZeroOne,
                         | '_'+$variable+'.isEmpty() ? null : _'+$variable+'.get(0)',
                         | $conventions->codeType(javaType('java.util.Collections'))->codeToString($proto)+'.unmodifiableList(_'+$variable+')'
                      ));
