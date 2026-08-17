@@ -1,7 +1,8 @@
 # M2M Execution via SQL (DuckDB) — Design
 
 **Date:** 2026-08-17
-**Status:** Approved design, pending implementation plan
+**Status:** Approved. Implementation plan for Phases 0–1: `docs/superpowers/plans/2026-08-17-m2m-sql-execution-phase1.md`.
+**Note:** The plan refines one seam relative to this spec: because `contract::supports` (`core/store/m2m/storeContract.pure:58-62`) excludes `serialize` from the M2M store cluster, the SQL path is implemented as a whole-plan rewrite via a new `Extension.postProcessExecutionPlan` hook (applied before platform binding) rather than a branch inside the store contract. Where the two documents differ, the plan is authoritative.
 **Author:** Aziem Chawdhary (with Claude)
 
 ## 1. Goal and motivation
