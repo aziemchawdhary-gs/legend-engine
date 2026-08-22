@@ -1193,6 +1193,8 @@ Enum meta::relational::functions::sqlQueryToString::DynaFunctionRegistry
   isNumeric,
   joinStrings,
   jaroWinklerSimilarity,
+  jsonArray,
+  jsonObject,
   keys,
   lag,
   last,

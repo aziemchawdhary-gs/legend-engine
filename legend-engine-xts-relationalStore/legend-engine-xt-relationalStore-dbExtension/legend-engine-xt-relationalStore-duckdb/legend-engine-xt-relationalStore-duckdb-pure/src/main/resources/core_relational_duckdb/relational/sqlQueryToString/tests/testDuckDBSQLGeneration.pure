@@ -19,6 +19,7 @@ import meta::external::store::relational::runtime::*;
 import meta::relational::extension::*;
 import meta::relational::functions::sqlQueryToString::*;
 import meta::relational::functions::sqlstring::*;
+import meta::relational::metamodel::*;
 import meta::relational::metamodel::relation::*;
 import meta::relational::runtime::*;
 import meta::relational::tests::*;
@@ -93,6 +94,22 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::testTo
       meta::relational::extension::relationalExtensions()
    );
    assertEquals('select json_extract_string("root".FIRM_DETAILS, \'$.legalName\') as "Legal Name" from FIRM_TABLE as "root"', $s);
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::testJsonObjectDynaFn(): Boolean[1]
+{
+   let alias = ^TableAlias(name = 'root', relationalElement = ^Table(name = 'm2m_src_0', schema = ^Schema(name = 'default', database = ^Database(name = 'm2m_db'))));
+   let col = ^TableAliasColumn(alias = $alias, column = ^Column(name = 'data', type = ^meta::relational::metamodel::datatype::SemiStructured()));
+   let f = ^DynaFunction(name = 'jsonObject', parameters = [^Literal(value = 'name'), $col]);
+   let sql = $f->meta::relational::functions::sqlQueryToString::processOperation(DatabaseType.DuckDB, meta::relational::extension::relationalExtensions());
+   assertEquals('json_object(\'name\', "root".data)', $sql);
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::testJsonArrayDynaFn(): Boolean[1]
+{
+   let f = ^DynaFunction(name = 'jsonArray', parameters = [^Literal(value = 1), ^Literal(value = 2)]);
+   let sql = $f->meta::relational::functions::sqlQueryToString::processOperation(DatabaseType.DuckDB, meta::relational::extension::relationalExtensions());
+   assertEquals('json_array(1, 2)', $sql);
 }
 
 ###Pure
