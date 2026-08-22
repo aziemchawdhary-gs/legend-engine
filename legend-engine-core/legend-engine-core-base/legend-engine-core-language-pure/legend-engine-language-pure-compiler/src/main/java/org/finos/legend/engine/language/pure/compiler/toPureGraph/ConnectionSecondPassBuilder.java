@@ -19,6 +19,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connect
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 import org.finos.legend.pure.generated.Root_meta_core_runtime_Connection;
 
@@ -61,6 +62,12 @@ public class ConnectionSecondPassBuilder implements ConnectionVisitor<Root_meta_
 
     @Override
     public Root_meta_core_runtime_Connection visit(XmlModelConnection xmlModelConnection)
+    {
+        return pureConnection;
+    }
+
+    @Override
+    public Root_meta_core_runtime_Connection visit(SqlModelConnection sqlModelConnection)
     {
         return pureConnection;
     }

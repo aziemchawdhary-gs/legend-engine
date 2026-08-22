@@ -17,6 +17,7 @@ package org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connec
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 
 public interface ConnectionVisitor<T>
@@ -30,6 +31,8 @@ public interface ConnectionVisitor<T>
     T visit(ModelConnection modelConnection);
 
     T visit(JsonModelConnection jsonModelConnection);
+
+    T visit(SqlModelConnection sqlModelConnection);
 
     T visit(XmlModelConnection xmlModelConnection);
 

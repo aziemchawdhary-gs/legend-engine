@@ -20,6 +20,7 @@ import org.finos.legend.engine.protocol.pure.m3.SourceInformation;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "_type")
@@ -30,6 +31,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.m
         @JsonSubTypes.Type(value = ModelConnection.class, name = "ModelConnection"),
         @JsonSubTypes.Type(value = ModelChainConnection.class, name = "ModelChainConnection"),
         @JsonSubTypes.Type(value = JsonModelConnection.class, name = "JsonModelConnection"),
+        @JsonSubTypes.Type(value = SqlModelConnection.class, name = "SqlModelConnection"),
         @JsonSubTypes.Type(value = XmlModelConnection.class, name = "XmlModelConnection"),
 })
 public abstract class Connection

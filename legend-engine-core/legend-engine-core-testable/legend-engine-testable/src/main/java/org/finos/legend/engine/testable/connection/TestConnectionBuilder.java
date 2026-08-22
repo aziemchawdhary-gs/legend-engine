@@ -32,6 +32,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connect
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 
 import java.io.Closeable;
@@ -103,6 +104,12 @@ public class TestConnectionBuilder implements ConnectionVisitor<Pair<Connection,
     public Pair<Connection, List<Closeable>> visit(XmlModelConnection xmlModelConnection)
     {
         return this.visit((Connection) xmlModelConnection);
+    }
+
+    @Override
+    public Pair<Connection, List<Closeable>> visit(SqlModelConnection sqlModelConnection)
+    {
+        return this.visit((Connection) sqlModelConnection);
     }
 
     @Override
