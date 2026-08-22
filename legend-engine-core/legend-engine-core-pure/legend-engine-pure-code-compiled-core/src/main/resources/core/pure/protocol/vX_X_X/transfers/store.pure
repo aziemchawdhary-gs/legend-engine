@@ -41,6 +41,7 @@ function meta::protocols::pure::vX_X_X::transformation::fromPureGraph::runtime::
 
          model:meta::external::store::model::ModelConnection[1]     | $model->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformModelConnection(),
          j:meta::external::store::model::JsonModelConnection[1]     | $j->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformJsonModelConnection(),
+         s:meta::external::store::model::SqlModelConnection[1]      | $s->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformSqlModelConnection(),
          x:meta::external::store::model::XmlModelConnection[1]      | $x->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformXmlModelConnection(),
          c:meta::external::store::model::ModelChainConnection[1]    | $c->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformChainConnection(),
 
@@ -67,6 +68,16 @@ function meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connectio
       _type   = 'JsonModelConnection',
       class   = $jsonModelConnection.class->elementToPath(),
       url     = $jsonModelConnection.url
+   );
+}
+
+function meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformSqlModelConnection(sqlModelConnection: meta::external::store::model::SqlModelConnection[1]):meta::protocols::pure::vX_X_X::metamodel::mapping::modelToModel::SqlModelConnection[1]
+{
+   ^meta::protocols::pure::vX_X_X::metamodel::mapping::modelToModel::SqlModelConnection(
+      element = 'ModelStore',
+      _type   = 'SqlModelConnection',
+      class   = $sqlModelConnection.class->elementToPath(),
+      url     = $sqlModelConnection.url
    );
 }
 

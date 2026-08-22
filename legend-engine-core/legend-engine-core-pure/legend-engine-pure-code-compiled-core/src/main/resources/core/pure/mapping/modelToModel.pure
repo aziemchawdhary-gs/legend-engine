@@ -61,6 +61,15 @@ Class meta::external::store::model::JsonModelConnection extends PureModelConnect
    url  : String[1];
 }
 
+// SQL-engine-backed model connection: source documents are loaded into an embedded
+// relational engine and the M2M transform executes as SQL when translatable
+// (falls back to the standard Java path otherwise)
+Class meta::external::store::model::SqlModelConnection extends PureModelConnection
+{
+   class: Class<Any>[1];
+   url  : String[1];
+}
+
 Class meta::pure::mapping::modelToModel::JsonDataRecord
 {
    number : Integer[1];
@@ -183,6 +192,7 @@ function meta::external::store::model::modelToModelConnectionToString(c:Connecti
 {
    $c->match([mc:ModelConnection[1] | 'instances = "' +  $mc.instances->keyValues()->map(p|$p.second.values->map(v|pair($p.first->elementToPath(), $v->toJSON())))->makeString('{',',','}'),
               jmc:JsonModelConnection[1] | 'url = ' + $jmc.url + ', class = ' + $jmc.class->elementToPath(),
+              smc:SqlModelConnection[1] | 'url = ' + $smc.url + ', class = ' + $smc.class->elementToPath(),
               xmc:XmlModelConnection[1] | 'url = ' + $xmc.url + ', class = ' + $xmc.class->elementToPath(),
               mcc:ModelChainConnection[1] | fail('ModelChainConnection not supported in Execution Plan');'';])
 }
@@ -281,6 +291,7 @@ function meta::pure::mapping::modelToModel::graphFetch::executionPlan::planRootG
                         | let sourceClass = $rootTree.sets->toOne()->cast(@PureInstanceSetImplementation).srcClass->toOne();
                           $runtime.connectionStores->filter(c|$c.element->instanceOf(ModelStore) && $c.connection->match([
                              j : JsonModelConnection[1]  | $j.class == $sourceClass,
+                             s : SqlModelConnection[1]   | $s.class == $sourceClass,
                              x : XmlModelConnection[1]   | $x.class ==  $sourceClass,
                              m : ModelConnection[1]      | $m.instances->get($sourceClass)->isNotEmpty(),
                              m : ModelQueryConnection[1] | $m.instancesProvider->get($sourceClass)->isNotEmpty(),
@@ -389,6 +400,7 @@ function meta::pure::mapping::modelToModel::graphFetch::executionPlan::planCross
                         | let sourceClass = $rootTree.sets->toOne()->cast(@PureInstanceSetImplementation).srcClass->toOne();
                           $runtime.connectionStores->filter(c|$c.element->instanceOf(ModelStore) && $c.connection->match([
                              j : JsonModelConnection[1]  | $j.class == $sourceClass,
+                             s : SqlModelConnection[1]   | $s.class == $sourceClass,
                              x : XmlModelConnection[1]   | $x.class ==  $sourceClass,
                              m : ModelConnection[1]      | $m.instances->get($sourceClass)->isNotEmpty(),
                              m : ModelQueryConnection[1] | $m.instancesProvider->get($sourceClass)->isNotEmpty(),
