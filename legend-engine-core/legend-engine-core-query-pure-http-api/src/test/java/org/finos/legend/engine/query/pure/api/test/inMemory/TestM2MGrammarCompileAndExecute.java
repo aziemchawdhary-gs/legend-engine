@@ -110,7 +110,7 @@ public class TestM2MGrammarCompileAndExecute
     }
 
     @Test
-    public void testSimpleM2MWithSqlModelConnection()
+    public void testSimpleM2MWithSqlModelConnection() throws IOException
     {
         PureModelContextData contextData = PureGrammarParser.newInstance().parseModel("" +
                 "Class test::Person\n" +
@@ -135,7 +135,7 @@ public class TestM2MGrammarCompileAndExecute
                 ")\n"
         );
 
-        ClassInstance fetchTree = rootGFT("test::Person");
+        ClassInstance fetchTree = rootGFT("test::Person", propertyGFT("fullName"));
         LambdaFunction lambda = lambda(apply(SERIALIZE, apply(GRAPH_FETCH, apply(GET_ALL, clazz("test::Person")), fetchTree), fetchTree));
 
         ExecuteInput input = new ExecuteInput();
@@ -145,7 +145,8 @@ public class TestM2MGrammarCompileAndExecute
         input.function = lambda;
         input.runtime = runtimeValue(sqlModelConnection("test::S_Person", "{\"firstName\":\"Jane\",\"lastName\":\"Doe\"}"));
         input.context = context();
-        runTest(input);
+        String json = responseAsString(runTest(input));
+        assertEquals("{\"builder\":{\"_type\":\"json\"},\"values\":{\"fullName\":\"Jane Doe\"}}", json);
     }
 
     @Test
