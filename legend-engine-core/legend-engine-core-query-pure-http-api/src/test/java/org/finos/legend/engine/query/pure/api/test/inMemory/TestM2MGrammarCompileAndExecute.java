@@ -26,6 +26,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connect
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.runtime.LegacyRuntime;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.runtime.Runtime;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 import org.finos.legend.engine.protocol.pure.m3.valuespecification.ValueSpecification;
 import org.finos.legend.engine.protocol.pure.m3.valuespecification.AppliedFunction;
@@ -104,6 +105,45 @@ public class TestM2MGrammarCompileAndExecute
         input.mapping = "test::combineNames";
         input.function = lambda;
         input.runtime = runtimeValue(jsonModelConnection("test::S_Person", "{\"firstName\":\"Jane\",\"lastName\":\"Doe\"}"));
+        input.context = context();
+        runTest(input);
+    }
+
+    @Test
+    public void testSimpleM2MWithSqlModelConnection()
+    {
+        PureModelContextData contextData = PureGrammarParser.newInstance().parseModel("" +
+                "Class test::Person\n" +
+                "{\n" +
+                "   fullName: String[1];\n" +
+                "}" +
+                "\n" +
+                "Class test::S_Person\n" +
+                "{\n" +
+                "   firstName: String[1];\n" +
+                "   lastName: String[1];\n" +
+                "}" +
+                "\n" +
+                "###Mapping\n" +
+                "Mapping test::combineNames\n" +
+                "(\n" +
+                "   *test::Person[test_Person] : Pure\n" +
+                "            {\n" +
+                "               ~src test::S_Person\n" +
+                "               fullName : $src.firstName + ' ' + $src.lastName\n" +
+                "            }\n" +
+                ")\n"
+        );
+
+        ClassInstance fetchTree = rootGFT("test::Person");
+        LambdaFunction lambda = lambda(apply(SERIALIZE, apply(GRAPH_FETCH, apply(GET_ALL, clazz("test::Person")), fetchTree), fetchTree));
+
+        ExecuteInput input = new ExecuteInput();
+        input.clientVersion = "vX_X_X";
+        input.model = contextData;
+        input.mapping = "test::combineNames";
+        input.function = lambda;
+        input.runtime = runtimeValue(sqlModelConnection("test::S_Person", "{\"firstName\":\"Jane\",\"lastName\":\"Doe\"}"));
         input.context = context();
         runTest(input);
     }
@@ -566,6 +606,15 @@ public class TestM2MGrammarCompileAndExecute
     private JsonModelConnection jsonModelConnection(String clazz, String data)
     {
         JsonModelConnection connection = new JsonModelConnection();
+        connection.element = "ModelStore";
+        connection._class = clazz;
+        connection.url = "data:application/json," + data;
+        return connection;
+    }
+
+    private SqlModelConnection sqlModelConnection(String clazz, String data)
+    {
+        SqlModelConnection connection = new SqlModelConnection();
         connection.element = "ModelStore";
         connection._class = clazz;
         connection.url = "data:application/json," + data;
