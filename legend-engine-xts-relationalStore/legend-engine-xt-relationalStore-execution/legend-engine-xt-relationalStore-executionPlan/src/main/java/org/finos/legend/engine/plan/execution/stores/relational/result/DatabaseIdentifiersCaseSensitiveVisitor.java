@@ -21,6 +21,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connect
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.DatabaseConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.DatabaseType;
@@ -79,6 +80,12 @@ public class DatabaseIdentifiersCaseSensitiveVisitor implements ConnectionVisito
     public Boolean visit(XmlModelConnection xmlModelConnection)
     {
         return throwNotSupportedException(xmlModelConnection);
+    }
+
+    @Override
+    public Boolean visit(SqlModelConnection sqlModelConnection)
+    {
+        return throwNotSupportedException(sqlModelConnection);
     }
 
     @Override

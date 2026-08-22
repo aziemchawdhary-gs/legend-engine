@@ -22,6 +22,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.m
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelStringInput;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 import org.finos.legend.pure.generated.*;
 import org.finos.legend.pure.m3.coreinstance.meta.pure.functions.collection.List;
@@ -80,6 +81,15 @@ public class ConnectionFirstPassBuilder implements ConnectionVisitor<Root_meta_c
         return new Root_meta_external_store_model_XmlModelConnection_Impl("", SourceInformationHelper.toM3SourceInformation(xmlModelConnection.sourceInformation), context.pureModel.getClass("meta::external::store::model::XmlModelConnection"))
                 ._class(this.context.resolveClass(xmlModelConnection._class, xmlModelConnection.classSourceInformation))
                 ._url(xmlModelConnection.url);
+    }
+
+    @Override
+    public Root_meta_core_runtime_Connection visit(SqlModelConnection sqlModelConnection)
+    {
+        HelperConnectionBuilder.verifyModelConnectionStore(sqlModelConnection.element, sqlModelConnection.elementSourceInformation);
+        return new Root_meta_external_store_model_SqlModelConnection_Impl("", SourceInformationHelper.toM3SourceInformation(sqlModelConnection.sourceInformation), context.pureModel.getClass("meta::external::store::model::SqlModelConnection"))
+                ._class(this.context.resolveClass(sqlModelConnection._class, sqlModelConnection.classSourceInformation))
+                ._url(sqlModelConnection.url);
     }
 
     @Override
