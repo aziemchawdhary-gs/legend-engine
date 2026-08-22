@@ -52,6 +52,18 @@ public class TestConnectionCompilationFromGrammar extends TestCompilationFromGra
     }
 
     @Test
+    public void testSqlModelConnection()
+    {
+        test("###Connection\n" +
+                "SqlModelConnection test::connection\n" +
+                "{\n" +
+                "  class : test::someClass;" +
+                "  url : 'asd';\n" +
+                "}\n", "COMPILATION error at [4:11-25]: Can't find class 'test::someClass'"
+        );
+    }
+
+    @Test
     public void testXmlModelConnection()
     {
         test("###Connection\n" +

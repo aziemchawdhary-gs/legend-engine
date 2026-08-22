@@ -758,7 +758,11 @@ public final class DEPRECATED_PureGrammarComposerCore implements
     @Override
     public String visit(SqlModelConnection sqlModelConnection)
     {
-        return this.visit((Connection) sqlModelConnection);
+        int baseIndentation = 0;
+        return this.indentationString + getTabString(baseIndentation) + "{\n" +
+                this.indentationString + getTabString(baseIndentation + 1) + "class: " + sqlModelConnection._class + ";\n" +
+                this.indentationString + getTabString(baseIndentation + 1) + "url: " + convertString(sqlModelConnection.url, true) + ";\n" +
+                this.indentationString + getTabString(baseIndentation) + "}";
     }
 
     @Override
