@@ -55,6 +55,7 @@ function meta::pure::mapping::modelToModel::executionPlan::platformBinding::lege
       ->addForClassesWithAllProperties($node.connection->map({c |
          $c->match([
             json : JsonModelConnection[1] | meta::pure::mapping::modelToModel::JsonDataRecord,
+            s    : SqlModelConnection[1]  | meta::pure::mapping::modelToModel::JsonDataRecord,
             xml  : XmlModelConnection[1]  | meta::pure::mapping::modelToModel::XmlDataRecord,
             a    : Any[1]                 | meta::pure::mapping::modelToModel::JsonDataRecord
          ])
@@ -85,6 +86,7 @@ function meta::pure::mapping::modelToModel::executionPlan::platformBinding::lege
    let connection        = $node.connection;
    let genReader         = $connection->match([
                               json  : JsonModelConnection[1] | true,
+                              s     : SqlModelConnection[1]  | true,
                               xml   : XmlModelConnection[1]  | true,
                               model : ModelConnection[1]     | true,
                               other : Any[1]                 | false
@@ -99,6 +101,7 @@ function meta::pure::mapping::modelToModel::executionPlan::platformBinding::lege
 
    let storeReaderProject = $connection->match([
       json  : JsonModelConnection[1] | createJsonReading($pureClass, $conventions->className($pureClass), $path, $readableClasses, $readableEnums, $context, $debug->indent()),
+      s     : SqlModelConnection[1]  | createJsonReading($pureClass, $conventions->className($pureClass), $path, $readableClasses, $readableEnums, $context, $debug->indent()),
       xml   : XmlModelConnection[1]  | createXmlReading($pureClass, $conventions->className($pureClass), $path, $readableClasses, $readableEnums, $context, $debug->indent()),
       model : ModelConnection[1]     | createStreamReading($pureClass, $conventions->className($pureClass), $path, $context, $debug->indent()),
       other : Any[1]                 | []
