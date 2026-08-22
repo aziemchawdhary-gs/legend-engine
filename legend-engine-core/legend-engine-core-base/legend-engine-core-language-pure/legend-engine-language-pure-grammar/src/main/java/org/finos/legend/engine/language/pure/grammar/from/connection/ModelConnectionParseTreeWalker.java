@@ -20,6 +20,7 @@ import org.finos.legend.engine.language.pure.grammar.from.PureGrammarParserUtili
 import org.finos.legend.engine.language.pure.grammar.from.antlr4.connection.modelConnection.ModelConnectionParserGrammar;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 
 import java.util.Collections;
@@ -34,6 +35,21 @@ public class ModelConnectionParseTreeWalker
     }
 
     public void visitJsonModelConnectionValue(ModelConnectionParserGrammar.DefinitionContext ctx, JsonModelConnection connectionValue, boolean isEmbedded)
+    {
+        if (!isEmbedded)
+        {
+            connectionValue.element = "ModelStore"; // stub value since we don't use an actual store for this type of connection
+        }
+        ModelConnectionParserGrammar.ModelConnectionClassContext classContext = PureGrammarParserUtility.validateAndExtractRequiredField(ctx.modelConnectionClass(), "class", connectionValue.sourceInformation);
+        // class
+        connectionValue._class = PureGrammarParserUtility.fromQualifiedName(classContext.qualifiedName().packagePath() == null ? Collections.emptyList() : classContext.qualifiedName().packagePath().identifier(), classContext.qualifiedName().identifier());
+        connectionValue.classSourceInformation = this.walkerSourceInformation.getSourceInformation(classContext.qualifiedName());
+        // url
+        ModelConnectionParserGrammar.ConnectionUrlContext urlContext = PureGrammarParserUtility.validateAndExtractRequiredField(ctx.connectionUrl(), "url", connectionValue.sourceInformation);
+        connectionValue.url = PureGrammarParserUtility.fromGrammarString(urlContext.STRING().getText(), true);
+    }
+
+    public void visitSqlModelConnectionValue(ModelConnectionParserGrammar.DefinitionContext ctx, SqlModelConnection connectionValue, boolean isEmbedded)
     {
         if (!isEmbedded)
         {

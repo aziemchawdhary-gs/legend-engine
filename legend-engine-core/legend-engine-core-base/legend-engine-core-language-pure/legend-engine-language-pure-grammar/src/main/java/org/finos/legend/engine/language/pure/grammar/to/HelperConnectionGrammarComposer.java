@@ -18,6 +18,7 @@ import org.eclipse.collections.impl.tuple.Tuples;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.connection.Connection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 
 import java.util.Objects;
@@ -33,6 +34,10 @@ public class HelperConnectionGrammarComposer
         if (connection instanceof JsonModelConnection)
         {
             return "JsonModelConnection";
+        }
+        else if (connection instanceof SqlModelConnection)
+        {
+            return "SqlModelConnection";
         }
         else if (connection instanceof XmlModelConnection)
         {

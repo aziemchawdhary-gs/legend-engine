@@ -49,6 +49,17 @@ public class TestConnectionGrammarRoundtrip extends TestGrammarRoundtrip.TestGra
     }
 
     @Test
+    public void testSqlModelConnection()
+    {
+        test("###Connection\n" +
+                "SqlModelConnection meta::mySqlModelConnection\n" +
+                "{\n" +
+                "  class: model::firm::Person;\n" +
+                "  url: 'my_url';\n" +
+                "}\n");
+    }
+
+    @Test
     public void testConnectionWithImport()
     {
         testWithSectionInfoPreserved("Class meta::myClass\n" +

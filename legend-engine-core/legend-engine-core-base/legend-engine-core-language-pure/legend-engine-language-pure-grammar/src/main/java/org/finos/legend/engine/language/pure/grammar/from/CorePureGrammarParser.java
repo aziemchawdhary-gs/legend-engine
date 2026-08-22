@@ -71,6 +71,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.section
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.section.Section;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.ModelChainConnection;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.XmlModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.mapping.ObjectInputData;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.mapping.ObjectInputType;
@@ -85,6 +86,7 @@ public class CorePureGrammarParser implements PureGrammarParserExtension
 {
     public static final String NAME = "Pure";
     public static final String JSON_MODEL_CONNECTION_TYPE = "JsonModelConnection";
+    public static final String SQL_MODEL_CONNECTION_TYPE = "SqlModelConnection";
     public static final String XML_MODEL_CONNECTION_TYPE = "XmlModelConnection";
     public static final String MODEL_CHAIN_CONNECTION_TYPE = "ModelChainConnection";
     public static final String ENUMERATION_MAPPING_TYPE = "EnumerationMapping";
@@ -131,6 +133,7 @@ public class CorePureGrammarParser implements PureGrammarParserExtension
     {
         return Lists.immutable.with(
                 ConnectionValueParser.newParser(JSON_MODEL_CONNECTION_TYPE, CorePureGrammarParser::parseJsonModelConnection),
+                ConnectionValueParser.newParser(SQL_MODEL_CONNECTION_TYPE, CorePureGrammarParser::parseSqlModelConnection),
                 ConnectionValueParser.newParser(XML_MODEL_CONNECTION_TYPE, CorePureGrammarParser::parseXmlModelConnection),
                 ConnectionValueParser.newParser(MODEL_CHAIN_CONNECTION_TYPE, CorePureGrammarParser::parseModelChainConnection));
     }
@@ -174,6 +177,16 @@ public class CorePureGrammarParser implements PureGrammarParserExtension
         SourceCodeParserInfo parserInfo = getModelConnectionParserInfo(connectionValueSourceCode);
         ModelConnectionParseTreeWalker walker = new ModelConnectionParseTreeWalker(parserInfo.walkerSourceInformation);
         walker.visitJsonModelConnectionValue((ModelConnectionParserGrammar.DefinitionContext) parserInfo.rootContext, connectionValue, connectionValueSourceCode.isEmbedded);
+        return connectionValue;
+    }
+
+    private static Connection parseSqlModelConnection(ConnectionValueSourceCode connectionValueSourceCode)
+    {
+        SqlModelConnection connectionValue = new SqlModelConnection();
+        connectionValue.sourceInformation = connectionValueSourceCode.sourceInformation;
+        SourceCodeParserInfo parserInfo = getModelConnectionParserInfo(connectionValueSourceCode);
+        ModelConnectionParseTreeWalker walker = new ModelConnectionParseTreeWalker(parserInfo.walkerSourceInformation);
+        walker.visitSqlModelConnectionValue((ModelConnectionParserGrammar.DefinitionContext) parserInfo.rootContext, connectionValue, connectionValueSourceCode.isEmbedded);
         return connectionValue;
     }
 
