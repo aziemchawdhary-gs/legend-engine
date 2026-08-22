@@ -264,6 +264,12 @@ Class meta::protocols::pure::vX_X_X::metamodel::mapping::modelToModel::JsonModel
    url   : String[1];
 }
 
+Class meta::protocols::pure::vX_X_X::metamodel::mapping::modelToModel::SqlModelConnection extends meta::protocols::pure::vX_X_X::metamodel::runtime::Connection
+{
+   class : String[1];
+   url   : String[1];
+}
+
 Class meta::protocols::pure::vX_X_X::metamodel::mapping::modelToModel::XmlModelConnection extends meta::protocols::pure::vX_X_X::metamodel::runtime::Connection
 {
    class : String[1];

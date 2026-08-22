@@ -108,6 +108,7 @@ function meta::pure::router::runtime::isPureM2MRuntime(runtime:meta::core::runti
       && $runtime.connectionStores.connection->forAll(c |
             $c->instanceOf(meta::external::store::model::ModelConnection)     ||
             $c->instanceOf(meta::external::store::model::JsonModelConnection) ||
+            $c->instanceOf(meta::external::store::model::SqlModelConnection)  ||
             $c->instanceOf(meta::external::store::model::XmlModelConnection)  ||
             $c->instanceOf(meta::external::store::model::ModelChainConnection)
          )
