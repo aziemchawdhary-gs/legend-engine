@@ -1,0 +1,173 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import meta::relational::m2mSql::*;
+import meta::external::store::model::*;
+import meta::pure::mapping::*;
+import meta::pure::mapping::modelToModel::contract::*;
+import meta::pure::graphFetch::*;
+import meta::pure::metamodel::type::*;
+import meta::pure::metamodel::valuespecification::*;
+import meta::pure::metamodel::function::property::*;
+
+// Conservative whitelist deciding whether a given M2M mapping + target graph fetch tree is
+// SQL-translatable. This is the gate the plan-rewrite collapse (Extension.postProcessExecutionPlan)
+// consults before rewriting a Java M2M execution plan into a SQL one: a construct is only ever
+// treated as translatable when it is positively known to be so. Anything not recognized falls back
+// to the existing Java execution path, so being wrong in the conservative direction is always safe.
+Class meta::relational::m2mSql::M2MSqlTranslatability
+{
+  translatable : Boolean[1];
+  reason       : String[0..1];
+}
+
+function meta::relational::m2mSql::canPlanM2MSql(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], mapping:Mapping[1]):meta::relational::m2mSql::M2MSqlTranslatability[1]
+{
+  let reasons = meta::relational::m2mSql::untranslatableReasons($setImpl, $targetTree->cast(@GraphFetchTree), $mapping);
+  ^meta::relational::m2mSql::M2MSqlTranslatability
+  (
+    translatable = $reasons->isEmpty(),
+    reason       = if($reasons->isEmpty(), | [], | $reasons->at(0))
+  );
+}
+
+// Checks that apply to a PureInstanceSetImplementation itself, regardless of which of its
+// properties the target tree actually selects: an unfiltered, non-local-property set
+// implementation is a prerequisite for translating anything reachable through it.
+function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImplementation[1]):String[*]
+{
+  if($setImpl.filter->isNotEmpty(),
+     | ['mapping filter not yet translated'],
+     | if($setImpl.mappingClass->isNotEmpty() || $setImpl.propertyMappings->exists(pm | $pm.localMappingProperty == true),
+          | ['local mapping property not yet translated'],
+          | []
+         )
+    );
+}
+
+function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1]):String[*]
+{
+  let rootReasons = $setImpl->rootLevelReasons();
+  if($rootReasons->isNotEmpty(),
+     | $rootReasons,
+     | if($tree.subTypeTrees->isNotEmpty(),
+          | ['subType graph fetch trees not yet translated'],
+          | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping))
+         )
+    );
+}
+
+function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1]):String[*]
+{
+  if($propertyTree.subType->isNotEmpty(),
+     | ['subType graph fetch trees not yet translated'],
+     {|
+       let propertyMappings = $setImpl->propertyMappingsByPropertyName($propertyTree.property.name->toOne())
+                                       ->filter(pm | $pm->instanceOf(PurePropertyMapping))
+                                       ->cast(@PurePropertyMapping);
+       if($propertyMappings->isEmpty(),
+          | if($propertyTree.property->isPropertyAutoMapped($setImpl),
+               | [],
+               | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')]
+              ),
+          | if($propertyMappings->exists(pm | $pm.transformer->isNotEmpty()),
+               | ['enumeration transformer not yet translated'],
+               | if($propertyMappings->exists(pm | $pm.explodeProperty == true),
+                    | ['explode property mapping not yet translated'],
+                    {|
+                      let transformReasons = $propertyMappings->map(pm | $pm.transform.expressionSequence->toOne()->meta::relational::m2mSql::explainUntranslatableExpression());
+                      if($transformReasons->isNotEmpty(),
+                         | $transformReasons->map(r | 'unsupported transform for property ' + $propertyTree.property.name->toOne() + ': ' + $r),
+                         | if($propertyTree.subTrees->isEmpty(),
+                              | [],
+                              {|
+                                let nestedSetImpl = meta::relational::m2mSql::resolveNestedSetImplementation($propertyMappings->at(0), $mapping);
+                                if($nestedSetImpl->isEmpty(),
+                                   | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
+                                   | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping)
+                                  );
+                              }
+                             )
+                        );
+                    }
+                   )
+              )
+         );
+     }
+    );
+}
+
+// Resolves the set implementation a complex (non-primitive) property mapping's target belongs to,
+// following the same two paths the M2M router itself uses: an explicit targetSetImplementationId,
+// or (when unset) the root class mapping for the property's declared type elsewhere in the mapping.
+function meta::relational::m2mSql::resolveNestedSetImplementation(pm:PurePropertyMapping[1], mapping:Mapping[1]):PureInstanceSetImplementation[0..1]
+{
+  let targetSetImpl = if($pm.targetSetImplementationId == '',
+     | let targetClass = $pm.property.genericType.rawType->toOne()->cast(@Class<Any>);
+       $mapping->rootClassMappingByClass($targetClass);,
+     | $mapping->classMappingById($pm.targetSetImplementationId);
+    );
+  if($targetSetImpl->isEmpty() || !$targetSetImpl->toOne()->instanceOf(PureInstanceSetImplementation),
+     | [],
+     | $targetSetImpl->toOne()->cast(@PureInstanceSetImplementation)
+    );
+}
+
+// Property transform lambdas are only translatable when every expression in them is one of:
+// the $src parameter itself, a primitive literal, a property access chained on a translatable
+// operand, or a call to a whitelisted arithmetic/string function on translatable operands.
+// Returns the reason the expression is NOT translatable, or [] when it is.
+function meta::relational::m2mSql::explainUntranslatableExpression(vs:ValueSpecification[1]):String[0..1]
+{
+  $vs->match(
+  [
+    v:VariableExpression[1] |
+      if($v.name == 'src', | [], | 'unsupported variable in transform: $' + $v.name),
+    i:InstanceValue[1] |
+      if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(DataType),
+         | [],
+         | 'unsupported literal in transform'
+        ),
+    sfe:SimpleFunctionExpression[1] |
+      if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
+         | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
+           if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
+         | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
+        ),
+    a:ValueSpecification[1] |
+      'unsupported expression in transform'
+  ]);
+}
+
+function meta::relational::m2mSql::isSqlTranslatableExpression(vs:ValueSpecification[1]):Boolean[1]
+{
+  $vs->explainUntranslatableExpression()->isEmpty();
+}
+
+// Conservative by design: only arithmetic/string composition proven safe by the parity corpus is
+// listed here. Extend only when a new translatable parity case demands it.
+function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<Any>[*]
+{
+  [
+    plus_String_MANY__String_1_,
+    plus_Integer_MANY__Integer_1_,
+    plus_Float_MANY__Float_1_,
+    plus_Number_MANY__Number_1_,
+    minus_Number_MANY__Number_1_,
+    times_Integer_MANY__Integer_1_,
+    times_Number_MANY__Number_1_,
+    divide_Number_1__Number_1__Float_1_,
+    toOne_T_MANY__T_1_
+  ];
+}

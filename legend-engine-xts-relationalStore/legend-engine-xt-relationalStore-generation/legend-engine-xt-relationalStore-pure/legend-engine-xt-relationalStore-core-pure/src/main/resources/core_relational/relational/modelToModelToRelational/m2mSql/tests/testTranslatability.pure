@@ -1,0 +1,254 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import meta::relational::m2mSql::*;
+import meta::pure::mapping::*;
+import meta::external::store::model::*;
+import meta::pure::graphFetch::*;
+
+Class meta::relational::m2mSql::tests::simpleRename::Person
+{
+  fullName: String[1];
+}
+Class meta::relational::m2mSql::tests::simpleRename::S_Person
+{
+  firstName: String[1];
+  lastName: String[1];
+}
+
+Class meta::relational::m2mSql::tests::mappingFilter::Person
+{
+  name: String[1];
+}
+Class meta::relational::m2mSql::tests::mappingFilter::S_Person
+{
+  name: String[1];
+  active: Boolean[1];
+}
+
+Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
+{
+  ROUGE, VERT, BLEU
+}
+Enum meta::relational::m2mSql::tests::enumTransform::TargetColor
+{
+  RED, GREEN, BLUE
+}
+Class meta::relational::m2mSql::tests::enumTransform::Item
+{
+  color: meta::relational::m2mSql::tests::enumTransform::TargetColor[1];
+}
+Class meta::relational::m2mSql::tests::enumTransform::S_Item
+{
+  color: meta::relational::m2mSql::tests::enumTransform::SourceColor[1];
+}
+
+Class meta::relational::m2mSql::tests::explodeMapping::Tag
+{
+  name: String[1];
+}
+Class meta::relational::m2mSql::tests::explodeMapping::S_Item
+{
+  tags: String[*];
+}
+
+Class meta::relational::m2mSql::tests::localProperty::Person
+{
+  fullName: String[1];
+}
+Class meta::relational::m2mSql::tests::localProperty::S_Person
+{
+  firstName: String[1];
+}
+
+Class meta::relational::m2mSql::tests::unsupportedFunction::Person
+{
+  name: String[1];
+}
+Class meta::relational::m2mSql::tests::unsupportedFunction::S_Person
+{
+  name: String[1];
+}
+
+Class meta::relational::m2mSql::tests::subTypeTree::Shape
+{
+  id: String[1];
+}
+Class meta::relational::m2mSql::tests::subTypeTree::Circle extends meta::relational::m2mSql::tests::subTypeTree::Shape
+{
+  radius: Integer[1];
+}
+Class meta::relational::m2mSql::tests::subTypeTree::Container
+{
+  name: String[1];
+  shape: meta::relational::m2mSql::tests::subTypeTree::Shape[1];
+}
+Class meta::relational::m2mSql::tests::subTypeTree::S_Container
+{
+  name: String[1];
+}
+
+###Mapping
+Mapping meta::relational::m2mSql::tests::simpleRename::TestMapping
+(
+  *meta::relational::m2mSql::tests::simpleRename::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::simpleRename::S_Person
+    fullName: $src.firstName + ' ' + $src.lastName
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::mappingFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::mappingFilter::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::mappingFilter::S_Person
+    ~filter $src.active
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::enumTransform::TestMapping
+(
+  *meta::relational::m2mSql::tests::enumTransform::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::enumTransform::S_Item
+    color: EnumerationMapping colorMapping : $src.color
+  }
+  meta::relational::m2mSql::tests::enumTransform::TargetColor: EnumerationMapping colorMapping
+  {
+    RED: [meta::relational::m2mSql::tests::enumTransform::SourceColor.ROUGE],
+    GREEN: [meta::relational::m2mSql::tests::enumTransform::SourceColor.VERT],
+    BLUE: [meta::relational::m2mSql::tests::enumTransform::SourceColor.BLEU]
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::explodeMapping::TestMapping
+(
+  *meta::relational::m2mSql::tests::explodeMapping::Tag: Pure
+  {
+    ~src meta::relational::m2mSql::tests::explodeMapping::S_Item
+    name* : $src.tags
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::localProperty::TestMapping
+(
+  *meta::relational::m2mSql::tests::localProperty::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::localProperty::S_Person
+    fullName: $src.firstName,
+    +extra: String[1]: $src.firstName
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::unsupportedFunction::TestMapping
+(
+  *meta::relational::m2mSql::tests::unsupportedFunction::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::unsupportedFunction::S_Person
+    name: $src.name->trim()
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::subTypeTree::TestMapping
+(
+  *meta::relational::m2mSql::tests::subTypeTree::Container: Pure
+  {
+    ~src meta::relational::m2mSql::tests::subTypeTree::S_Container
+    name: $src.name
+  }
+)
+
+###Pure
+import meta::relational::m2mSql::*;
+import meta::pure::mapping::*;
+import meta::external::store::model::*;
+import meta::pure::graphFetch::*;
+
+function <<test.Test>> meta::relational::m2mSql::tests::testSimpleRenameIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::simpleRename::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::simpleRename::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::simpleRename::Person{fullName}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected simple rename mapping to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testMappingFilterIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::mappingFilter::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::mappingFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::mappingFilter::Person{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('filter'), | 'expected reason to mention filter, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::enumTransform::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::enumTransform::Item)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::enumTransform::Item{color}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('enumeration'), | 'expected reason to mention enumeration, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodePropertyMappingIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::explodeMapping::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::explodeMapping::Tag)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::explodeMapping::Tag{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('explode'), | 'expected reason to mention explode, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testLocalMappingPropertyIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::localProperty::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::localProperty::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::localProperty::Person{fullName}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('local'), | 'expected reason to mention local, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testNonWhitelistedFunctionIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::unsupportedFunction::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::unsupportedFunction::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::unsupportedFunction::Person{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('trim'), | 'expected reason to name the trim function, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testSubTypeTreeIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::subTypeTree::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::subTypeTree::Container)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::subTypeTree::Container{name, shape->subType(@meta::relational::m2mSql::tests::subTypeTree::Circle){radius}}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->contains('subType'), | 'expected reason to mention subType, got: ' + $result.reason->orElse('<none>'));
+}
