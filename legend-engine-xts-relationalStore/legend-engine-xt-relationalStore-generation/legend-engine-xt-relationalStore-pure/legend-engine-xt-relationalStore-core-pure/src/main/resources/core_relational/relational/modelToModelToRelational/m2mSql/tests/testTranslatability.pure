@@ -128,13 +128,21 @@ Class meta::relational::m2mSql::tests::nestedComplexToOne::S_Person
   address: meta::relational::m2mSql::tests::nestedComplexToOne::S_Address[0..1];
 }
 
+// name is deliberately left OUT of the mapping below so it is genuinely unmapped (not just an
+// explicit same-name passthrough like simpleRename/computedPrimitive): source and target both
+// declare it with the same name/type, so it is a candidate for
+// meta::pure::mapping::modelToModel::contract::isPropertyAutoMapped. other is mapped explicitly
+// so the class mapping body is non-empty (an entirely property-mapping-free class mapping body
+// does not parse).
 Class meta::relational::m2mSql::tests::autoMapped::Item
 {
   name: String[1];
+  other: String[1];
 }
 Class meta::relational::m2mSql::tests::autoMapped::S_Item
 {
   name: String[1];
+  other: String[1];
 }
 
 Class meta::relational::m2mSql::tests::primitiveCollection::Item
@@ -247,7 +255,7 @@ Mapping meta::relational::m2mSql::tests::autoMapped::TestMapping
   *meta::relational::m2mSql::tests::autoMapped::Item: Pure
   {
     ~src meta::relational::m2mSql::tests::autoMapped::S_Item
-    name: $src.name
+    other: $src.other
   }
 )
 
@@ -368,12 +376,19 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNestedComplexToOneIs
 
 function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedIsTranslatable():Boolean[1]
 {
-  let mapping = meta::relational::m2mSql::tests::autoMapped::TestMapping;
-  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMapped::Item)->cast(@PureInstanceSetImplementation)->toOne();
-  let tree    = #{meta::relational::m2mSql::tests::autoMapped::Item{name}}#->cast(@RootGraphFetchTree<Any>);
+  let mapping      = meta::relational::m2mSql::tests::autoMapped::TestMapping;
+  let setImpl      = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMapped::Item)->cast(@PureInstanceSetImplementation)->toOne();
+  let nameProperty = meta::relational::m2mSql::tests::autoMapped::Item->propertyByName('name')->toOne();
 
+  // Ground the test in the store contract's own definition of auto-mapping (verified empirically,
+  // not assumed): name has no PurePropertyMapping at all in TestMapping above (only other does),
+  // and source/target both declare it with the same name/type, so the M2M store contract itself
+  // reports it as auto-mapped. canPlanM2MSql must therefore treat it as translatable too.
+  assert($nameProperty->meta::pure::mapping::modelToModel::contract::isPropertyAutoMapped($setImpl), | 'expected name to be reported as auto-mapped by the M2M store contract (it has no explicit property mapping in TestMapping and source/target agree on name/type)');
+
+  let tree   = #{meta::relational::m2mSql::tests::autoMapped::Item{name, other}}#->cast(@RootGraphFetchTree<Any>);
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assert($result.translatable, | 'expected auto-mapped mapping to be translatable, got reason: ' + $result.reason->orElse(''));
+  assert($result.translatable, | 'expected a genuinely unmapped, store-contract-auto-mapped property to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testPrimitiveCollectionIsTranslatable():Boolean[1]
