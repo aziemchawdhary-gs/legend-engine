@@ -206,7 +206,7 @@ function meta::pure::executionPlan::executionPlan(clusters:ClusteredValueSpecifi
 
    let updatedNode = addFunctionParametersValidationNode($node, $f, $functionParameters->concatenate($executionOptionParameters)->checkConflictingParameters(), $routedFunction, $context);
 
-   ^ExecutionPlan
+   let assembledPlan = ^ExecutionPlan
    (
       func = $f,
       mapping = $m,
@@ -216,6 +216,7 @@ function meta::pure::executionPlan::executionPlan(clusters:ClusteredValueSpecifi
       kerberos =  $updatedNode->allNodes($extensions).kerberos->first(),
       processingTemplateFunctions = $updatedNode->allNodes($extensions).supportFunctions->removeDuplicates()
    );
+   $extensions.postProcessExecutionPlan->fold({pp, p | $pp->eval($p, $extensions, $debugContext)}, $assembledPlan);
 }
 
 function meta::pure::executionPlan::generatePlatformCode(plan:ExecutionPlan[1], platformId:String[1], config:meta::pure::executionPlan::platformBinding::PlatformBindingConfig[1], extensions:meta::pure::extension::Extension[*]):ExecutionPlan[1]
