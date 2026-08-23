@@ -1,0 +1,151 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import meta::external::format::shared::binding::*;
+import meta::pure::graphFetch::*;
+import meta::pure::mapping::*;
+import meta::pure::metamodel::function::property::*;
+import meta::pure::metamodel::type::*;
+import meta::pure::model::unit::*;
+import meta::relational::m2mSql::*;
+import meta::relational::mapping::*;
+import meta::relational::metamodel::*;
+import meta::relational::metamodel::relation::*;
+
+// The single synthetic relational store that stands in for an M2M source class: one table with one
+// JSON column, plus a mapping that reads the source class' properties back out of that column by
+// semi-structured navigation. Task 11 plans queries against `mapping` and executes them against a
+// DuckDB view over `table`, so all five pieces are handed back together.
+Class meta::relational::m2mSql::M2MSqlSourceStore
+{
+  database   : Database[1];
+  table      : Table[1];
+  jsonColumn : Column[1];
+  mapping    : Mapping[1];
+  rootSet    : RootRelationalInstanceSetImplementation[1];
+}
+
+// Builds the synthetic store for one source class. Only the properties the source tree actually
+// asks for are mapped: primitives become `extractFromSemiStructured` reads off the JSON column,
+// complex properties become semi-structured embedded sets whose own nested property mappings are
+// synthesized lazily by meta::relational::mapping::buildSemiStructuredPropertyMapping during
+// planning.
+function meta::relational::m2mSql::synthesizeSourceStore(srcClass:Class<Any>[1], sourceTree:RootGraphFetchTree<Any>[1]):M2MSqlSourceStore[1]
+{
+  let db      = ^Database(name = 'm2mSqlSourceDb', package = meta::relational::m2mSql);
+  let schema  = ^Schema(name = 'default', database = $db);
+  let jsonCol = ^Column(name = 'data', type = ^meta::relational::metamodel::datatype::SemiStructured());
+  let table   = ^Table(name = 'm2m_src_0', schema = $schema, columns = $jsonCol, primaryKey = $jsonCol);
+
+  $db->mutateAdd('schemas', $schema);
+  $schema->mutateAdd('tables', $table);
+
+  let alias   = ^TableAlias(database = $db, name = 'root', relationalElement = $table);
+  let mapping = ^Mapping(name = 'm2mSqlSourceMapping', package = meta::relational::m2mSql);
+
+  let set = ^RootRelationalInstanceSetImplementation
+            (
+              id                    = $srcClass.name->toOne(),
+              root                  = true,
+              parent                = $mapping,
+              class                 = $srcClass,
+              mainTableAlias        = $alias,
+              userDefinedPrimaryKey = true,
+              primaryKey            = ^TableAliasColumn(alias = $alias, column = $jsonCol)
+            );
+
+  // One binding for the whole synthetic store. Only `contentType` is consulted from here on:
+  // meta::relational::mapping::buildSemiStructuredPropertyMapping reads it when it synthesizes the
+  // nested property mappings during planning. The model unit is informational.
+  let binding = ^Binding
+                (
+                  name        = 'm2mSqlSourceBinding',
+                  package     = meta::relational::m2mSql,
+                  contentType = 'application/json',
+                  modelUnit   = ^ModelUnit(packageableElementIncludes = $srcClass)
+                );
+
+  let propertyMappings = $sourceTree.propertyTrees().property->map(p | $p->buildSourcePropertyMapping($set, $alias, $jsonCol, $mapping, $binding));
+
+  $set->mutateAdd('propertyMappings', $propertyMappings);
+  $mapping->mutateAdd('classMappings', $set);
+
+  ^M2MSqlSourceStore
+  (
+    database   = $db,
+    table      = $table,
+    jsonColumn = $jsonCol,
+    mapping    = $mapping,
+    rootSet    = $set
+  );
+}
+
+function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping(property:AbstractProperty<Any>[1], set:RootRelationalInstanceSetImplementation[1], alias:TableAlias[1], jsonColumn:Column[1], mapping:Mapping[1], binding:Binding[1]):PropertyMapping[1]
+{
+  let returnType = $property->functionReturnType().rawType->toOne();
+  let jsonRead   = ^TableAliasColumn(alias = $alias, column = $jsonColumn);
+
+  if($returnType->instanceOf(DataType),
+     | ^RelationalPropertyMapping
+       (
+         property                   = $property->cast(@Property<Nil,Any|*>),
+         sourceSetImplementationId  = $set.id,
+         targetSetImplementationId  = '',
+         owner                      = $set,
+         relationalOperationElement = ^DynaFunction
+                                      (
+                                        name       = 'extractFromSemiStructured',
+                                        parameters = [
+                                                       $jsonRead,
+                                                       ^Literal(value = $property.name->toOne()),
+                                                       ^Literal(value = $returnType->pureTypeToSemiStructuredExtractType())
+                                                     ]
+                                      )
+       ),
+     | let propertyClass = $returnType->cast(@Class<Any>);
+       let setId = $set.id + '_' + $property.name->toOne();
+       ^SemiStructuredEmbeddedRelationalInstanceSetImplementation
+       (
+         id                         = $setId,
+         root                       = false,
+         class                      = $propertyClass,
+         parent                     = $mapping,
+         setMappingOwner            = $set,
+         sourceSetImplementationId  = $set.id,
+         targetSetImplementationId  = $setId,
+         owner                      = $set,
+         property                   = $property->cast(@Property<Nil,Any|*>),
+         relationalOperationElement = ^meta::relational::metamodel::operation::SemiStructuredPropertyAccess
+                                      (
+                                        operand     = $jsonRead,
+                                        property    = ^Literal(value = $property.name->toOne()),
+                                        returnType  = $propertyClass,
+                                        contentType = 'application/json'
+                                      ),
+         transformer                = ^BindingTransformer<Any>(binding = $binding, class = $propertyClass)
+       );
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredExtractType(t:Type[1]):String[1]
+{
+  if($t == String,                | 'VARCHAR',
+  | if($t == Integer,             | 'INTEGER',
+  | if($t == Float,               | 'FLOAT',
+  | if($t == Decimal,             | 'DECIMAL',
+  | if($t == Boolean,             | 'BOOLEAN',
+  | if($t == StrictDate,          | 'DATE',
+  | if($t->in([Date, DateTime]),  | 'TIMESTAMP',
+  | fail('Unsupported source primitive for M2M SQL: ' + $t->cast(@PackageableElement)->elementToPath()); 'VARCHAR';)))))));
+}

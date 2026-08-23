@@ -9599,6 +9599,12 @@ function meta::relational::functions::pureToSqlQuery::usePropertyName(element:Re
                         op:VariableArityOperation[1]|^$op(args=$op.args->map(arg | $arg->usePropertyName($property, $relationalPropertyMappings, $state, $extensions))),
                         cn:ColumnName[1] |$cn,
                         d:DataTypeInfo[1] | $d,
+                        // Reached when a non-embedded (root) set implementation maps a complex property
+                        // straight onto a navigation over a semi-structured column, as the synthetic
+                        // M2M-SQL source store does. Nothing here needs renaming; recurse as
+                        // reprocessTableAliasColumns does so the operand's TableAliasColumns are visited.
+                        s:SemiStructuredPropertyAccess[1] | ^$s(operand = $s.operand->usePropertyName($property, $relationalPropertyMappings, $state, $extensions), property = $s.property->usePropertyName($property, $relationalPropertyMappings, $state, $extensions), index = $s.index->map(i | $i->usePropertyName($property, $relationalPropertyMappings, $state, $extensions))),
+                        s:SemiStructuredArrayElementAccess[1] | ^$s(operand = $s.operand->usePropertyName($property, $relationalPropertyMappings, $state, $extensions), index = $s.index->usePropertyName($property, $relationalPropertyMappings, $state, $extensions)),
                         rlp:RelationalLambdaParameter[1] | ^$rlp(value = $rlp.value->usePropertyName($property, $relationalPropertyMappings, $state, $extensions)),
                         l:RelationalLambda[1] | ^$l(body = $l.body->usePropertyName($property, $relationalPropertyMappings, $state, $extensions), parameters = $l.parameters->map(p | $p->usePropertyName($property, $relationalPropertyMappings, $state, $extensions))->cast(@RelationalLambdaParameter))
                     ]
