@@ -13,6 +13,8 @@
 // limitations under the License.
 
 ###Pure
+import meta::core::runtime::*;
+import meta::external::store::relational::runtime::*;
 import meta::relational::extension::*;
 import meta::relational::functions::sqlstring::*;
 import meta::relational::m2mSql::*;
@@ -53,4 +55,26 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
               relationalExtensions()
             );
   assertEquals('select "root".data->\'address\'->\'street\' as "street" from m2m_src_0 as "root"', $sql);
+}
+
+// The exact path Task 11 consumes: the synthetic Database is never registered as a packageable
+// element, so it has to resolve through a real ConnectionStore during plan-node assembly, not just
+// through the SQL generator that toSQLString exercises.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testSourceSynthesisExecutionPlan():Boolean[1]
+{
+  let src = synthesizeSourceStore(SrcPerson, #{SrcPerson {firstName, age}}#);
+  let plan = meta::pure::executionPlan::executionPlan(
+               |SrcPerson.all()->project([s | $s.firstName, s | $s.age], ['firstName', 'age']),
+               $src.mapping,
+               ^Runtime(connectionStores = ^ConnectionStore(
+                   element = $src.database,
+                   connection = ^RelationalDatabaseConnection(
+                                  type = DatabaseType.DuckDB,
+                                  datasourceSpecification = ^meta::pure::alloy::connections::alloy::specification::DuckDBDatasourceSpecification(path = ''),
+                                  authenticationStrategy = ^meta::pure::alloy::connections::alloy::authentication::TestDatabaseAuthenticationStrategy()))),
+               relationalExtensions()
+             );
+  let result = $plan->meta::pure::executionPlan::toString::planToString(relationalExtensions());
+  assert($result->contains('m2m_src_0'), | 'expected the synthetic table in the plan, got: ' + $result);
+  assert($result->contains('json_extract_string("root".data, \'$.firstName\')'), | 'expected semi-structured navigation, got: ' + $result);
 }
