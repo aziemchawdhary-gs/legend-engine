@@ -233,6 +233,14 @@ function <<access.private>> meta::relational::m2mSql::buildProjectExpression(src
 
 // (c) The outer JSON document, mirroring the target tree's nesting. Leaves reference the inner
 // query's columns by the same flattened name flattenTargetTree assigned them.
+//
+// Two known divergences from the Java M2M serializer, both data-dependent (the SQL text is the same
+// either way) and both deliberately left alone here — Task 13 owns the parity normalization
+// decision, so changing the emitted SQL now would pre-empt it:
+//   - a missing optional primitive serialises as an explicit `null` rather than being omitted;
+//   - the nested json_object below is emitted unconditionally, with no null check on the parent
+//     complex property, so a source row with no `address` yields {"address":{"street":null}} rather
+//     than a null/absent `address`.
 function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpression(tree:GraphFetchTree[1], prefix:String[*]):RelationalOperationElement[1]
 {
   let parameters = $tree.propertyTrees()->map(pt |
