@@ -59,7 +59,12 @@ public class TestM2MSqlParity
         EngineUrlStreamHandlerFactory.initialize();
     }
 
-    private String execute(String grammar, String queryFn)
+    /**
+     * Parses, compiles and plans the given grammar + query. Split out from {@link #runPlan} so a
+     * caller that needs to inspect plan shape (e.g. SQL-collapsed vs Java-fallback, in a later
+     * task) can do so without duplicating the parse&rarr;compile&rarr;plan chain.
+     */
+    private SingleExecutionPlan compileAndPlan(String grammar, String queryFn)
     {
         try
         {
@@ -77,8 +82,21 @@ public class TestM2MSqlParity
                     core_java_platform_binding_legendJavaPlatformBinding_store_m2m_m2mLegendJavaPlatformBindingExtension
                             .Root_meta_pure_mapping_modelToModel_executionPlan_platformBinding_legendJava_inMemoryExtensionsWithLegendJavaPlatformBinding__Extension_MANY_(pureModel.getExecutionSupport());
 
-            SingleExecutionPlan plan = PlanGenerator.generateExecutionPlan(lambda, mapping, runtime, null, pureModel, "vX_X_X", PlanPlatform.JAVA, "test", extensions, LegendPlanTransformers.transformers);
+            return PlanGenerator.generateExecutionPlan(lambda, mapping, runtime, null, pureModel, "vX_X_X", PlanPlatform.JAVA, "test", extensions, LegendPlanTransformers.transformers);
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
 
+    /**
+     * Executes an already-generated plan and returns its serialized JSON output.
+     */
+    private String runPlan(SingleExecutionPlan plan)
+    {
+        try
+        {
             PlanExecutor executor = PlanExecutor.newPlanExecutor(InMemory.build());
             StreamingResult streamingResult = (StreamingResult) executor.execute(plan);
             return streamingResult.flush(streamingResult.getSerializer(SerializationFormat.DEFAULT));
@@ -87,6 +105,11 @@ public class TestM2MSqlParity
         {
             throw new RuntimeException(e);
         }
+    }
+
+    private String execute(String grammar, String queryFn)
+    {
+        return runPlan(compileAndPlan(grammar, queryFn));
     }
 
     private void assertParity(String grammarTemplate, String queryFn, String expectedJson)
