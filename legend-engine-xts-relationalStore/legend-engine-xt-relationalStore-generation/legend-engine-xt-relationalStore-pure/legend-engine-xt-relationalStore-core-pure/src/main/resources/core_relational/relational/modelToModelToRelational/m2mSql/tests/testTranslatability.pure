@@ -99,6 +99,53 @@ Class meta::relational::m2mSql::tests::subTypeTree::S_Container
   name: String[1];
 }
 
+Class meta::relational::m2mSql::tests::computedPrimitive::Result
+{
+  product: Integer[1];
+}
+Class meta::relational::m2mSql::tests::computedPrimitive::S_Result
+{
+  a: Integer[1];
+  b: Integer[1];
+}
+
+Class meta::relational::m2mSql::tests::nestedComplexToOne::Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::nestedComplexToOne::Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::nestedComplexToOne::Address[0..1];
+}
+Class meta::relational::m2mSql::tests::nestedComplexToOne::S_Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::nestedComplexToOne::S_Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::nestedComplexToOne::S_Address[0..1];
+}
+
+Class meta::relational::m2mSql::tests::autoMapped::Item
+{
+  name: String[1];
+}
+Class meta::relational::m2mSql::tests::autoMapped::S_Item
+{
+  name: String[1];
+}
+
+Class meta::relational::m2mSql::tests::primitiveCollection::Item
+{
+  tags: String[*];
+}
+Class meta::relational::m2mSql::tests::primitiveCollection::S_Item
+{
+  tags: String[*];
+}
+
 ###Mapping
 Mapping meta::relational::m2mSql::tests::simpleRename::TestMapping
 (
@@ -168,6 +215,48 @@ Mapping meta::relational::m2mSql::tests::subTypeTree::TestMapping
   {
     ~src meta::relational::m2mSql::tests::subTypeTree::S_Container
     name: $src.name
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::computedPrimitive::TestMapping
+(
+  *meta::relational::m2mSql::tests::computedPrimitive::Result: Pure
+  {
+    ~src meta::relational::m2mSql::tests::computedPrimitive::S_Result
+    product: $src.a * $src.b
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping
+(
+  *meta::relational::m2mSql::tests::nestedComplexToOne::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::nestedComplexToOne::S_Person
+    name: $src.name,
+    address: $src.address
+  }
+  *meta::relational::m2mSql::tests::nestedComplexToOne::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::nestedComplexToOne::S_Address
+    city: $src.city
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::autoMapped::TestMapping
+(
+  *meta::relational::m2mSql::tests::autoMapped::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::autoMapped::S_Item
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::primitiveCollection::TestMapping
+(
+  *meta::relational::m2mSql::tests::primitiveCollection::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::primitiveCollection::S_Item
+    tags: $src.tags
   }
 )
 
@@ -251,4 +340,48 @@ function <<test.Test>> meta::relational::m2mSql::tests::testSubTypeTreeIsNotTran
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable);
   assert($result.reason->isNotEmpty() && $result.reason->toOne()->contains('subType'), | 'expected reason to mention subType, got: ' + $result.reason->orElse('<none>'));
+}
+
+// Remaining translatable parity-corpus cases (Task 8's TestM2MSqlParity), included so the
+// whitelist is checked against the full corpus this task's design context is bound to, not just
+// the single positive case Step 1 of the brief calls out by name.
+
+function <<test.Test>> meta::relational::m2mSql::tests::testComputedPrimitiveIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::computedPrimitive::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::computedPrimitive::Result)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::computedPrimitive::Result{product}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected computed primitive (Integer * Integer) mapping to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testNestedComplexToOneIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::nestedComplexToOne::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::nestedComplexToOne::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected nested complex-to-one mapping to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::autoMapped::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMapped::Item)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::autoMapped::Item{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected auto-mapped mapping to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testPrimitiveCollectionIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::primitiveCollection::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::primitiveCollection::Item)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::primitiveCollection::Item{tags}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected primitive collection mapping to be translatable, got reason: ' + $result.reason->orElse(''));
 }
