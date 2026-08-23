@@ -1,0 +1,205 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Person
+{
+  firstName : String[1];
+  lastName  : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Person
+{
+  fullName : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Address
+{
+  street : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Employee
+{
+  firstName : String[1];
+  lastName  : String[1];
+  nickname  : String[0..1];
+  address   : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Address[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Address
+{
+  street : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Employee
+{
+  fullName : String[1];
+  nickname : String[0..1];
+  address  : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Address[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Item
+{
+  tags : String[*];
+}
+
+// name is deliberately left out of autoMappedMapping below so it is genuinely unmapped and has to
+// go through the M2M store contract's auto-mapping rule.
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Label
+{
+  name  : String[1];
+  other : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Label
+{
+  name  : String[1];
+  other : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Item
+{
+  tags : String[*];
+}
+
+###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Person: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Person
+    fullName: $src.firstName + ' ' + $src.lastName
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::nestedComplexToOneMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Employee: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Employee
+    fullName: $src.firstName + ' ' + $src.lastName,
+    nickname: $src.nickname,
+    address: $src.address
+  }
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Address: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Address
+    street: $src.street
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::primitiveCollectionMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Item: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Item
+    tags: $src.tags
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::autoMappedMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Label: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Label
+    other: $src.other
+  }
+)
+
+###Pure
+import meta::core::runtime::*;
+import meta::external::store::model::*;
+import meta::external::store::relational::runtime::*;
+import meta::pure::graphFetch::*;
+import meta::pure::mapping::*;
+import meta::relational::extension::*;
+import meta::relational::m2mSql::*;
+import meta::relational::runtime::*;
+import meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::*;
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(mapping:Mapping[1], class:Class<Any>[1]):PureInstanceSetImplementation[1]
+{
+  $mapping.classMappings->filter(c | $c->instanceOf(PureInstanceSetImplementation) && $c->cast(@PureInstanceSetImplementation).class == $class)->toOne()->cast(@PureInstanceSetImplementation);
+}
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection():RelationalDatabaseConnection[1]
+{
+  ^RelationalDatabaseConnection
+  (
+    type                    = DatabaseType.DuckDB,
+    datasourceSpecification = ^meta::pure::alloy::connections::alloy::specification::DuckDBDatasourceSpecification(path = ''),
+    authenticationStrategy  = ^meta::pure::alloy::connections::alloy::authentication::TestDatabaseAuthenticationStrategy()
+  );
+}
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls():String[*]
+{
+  [
+    'CREATE OR REPLACE TEMP TABLE m2m_src_0 (data JSON);',
+    'INSERT INTO m2m_src_0 SELECT to_json(j) FROM read_json(\'{{M2M_INPUT_PATH}}\', format=\'auto\') as j;'
+  ];
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testSimpleM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Person);
+  let q       = buildM2MSqlQuery($setImpl, #{Person {fullName}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
+  assertEquals('select json_object(\'fullName\', "m2m_sub".fullName) as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "fullName" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// The nested leaf reaches the inner query through the semi-structured navigation operator (`->`),
+// which on DuckDB yields a JSON value rather than a SQL scalar. That is deliberate and correct here:
+// json_object nests a JSON-typed argument verbatim, so `{"street":"S1"}` comes out the same as it
+// would from a root-level, VARCHAR-typed json_extract_string leaf.
+//
+// nickname is [0..1] on both sides, and address is a [0..1] complex property: both must be treated as
+// single-valued, not as collections (the collection path re-parses the column as JSON, which would be
+// wrong for a plain string).
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testNestedComplexToOneM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::nestedComplexToOneMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Employee);
+  let q       = buildM2MSqlQuery($setImpl, #{Employee {fullName, nickname, address {street}}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
+  assertEquals('select json_object(\'fullName\', "m2m_sub".fullName, \'nickname\', "m2m_sub".nickname, \'address\', json_object(\'street\', "m2m_sub".address__street)) as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "fullName", json_extract_string("root".data, \'$.nickname\') as "nickname", "root".data->\'address\'->\'street\' as "address__street" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// A collection leaf is extracted as VARCHAR by the synthetic source mapping, so the inner column
+// holds the *text* of the JSON array. The outer projection re-parses it (parseJson -> cast as JSON)
+// so it nests as a real array instead of a quoted string.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testPrimitiveCollectionM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::primitiveCollectionMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Item);
+  let q       = buildM2MSqlQuery($setImpl, #{Item {tags}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
+  assertEquals('select json_object(\'tags\', cast("m2m_sub".tags as JSON)) as "doc" from (select json_extract_string("root".data, \'$.tags\') as "tags" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// An unmapped-but-auto-mappable target property has no transform lambda to inline, so the projection
+// has to synthesize the identity property access on the source itself.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testAutoMappedM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::autoMappedMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Label);
+  let q       = buildM2MSqlQuery($setImpl, #{Label {name, other}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
+  assertEquals('select json_object(\'name\', "m2m_sub".name, \'other\', "m2m_sub".other) as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", json_extract_string("root".data, \'$.other\') as "other" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
