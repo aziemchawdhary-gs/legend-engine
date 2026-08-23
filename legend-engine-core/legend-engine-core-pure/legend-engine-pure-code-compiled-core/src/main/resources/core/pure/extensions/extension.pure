@@ -66,6 +66,10 @@ Class meta::pure::extension::Extension
   graphExtension_calculateSourceTree : Function<{RootGraphFetchTree<Any>[1] -> Function<{Nil[1]->RootGraphFetchTree<Any>[1]}>[1]}>[0..1];
   // --------------------------------------------------------------------------------------------------------------------------------------
 
+  // Plan post-processing: applied to the fully assembled ExecutionPlan before platform binding ----
+  postProcessExecutionPlan : Function<{meta::pure::executionPlan::ExecutionPlan[1], meta::pure::extension::Extension[*], DebugContext[1] -> meta::pure::executionPlan::ExecutionPlan[1]}>[0..1];
+  //-----------------------------------------------------------------------------------------------
+
   //---------------------------------------------------------------------------------------------------------------------------------------
   // meta::pure::tds::join is WRONGLY in Relational because it uses JoinType
   // meta::pure::tds::extensions::columnValueDifference is WRONGLY in Relational because it uses Join
