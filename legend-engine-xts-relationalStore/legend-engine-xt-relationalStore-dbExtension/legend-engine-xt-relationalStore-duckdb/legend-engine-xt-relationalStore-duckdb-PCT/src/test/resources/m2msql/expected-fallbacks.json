@@ -1,0 +1,14 @@
+[
+  {
+    "case": "mappingFilter",
+    "reason": "mapping filter not yet translated"
+  },
+  {
+    "case": "enumTransform",
+    "reason": "enumeration transformer not yet translated"
+  },
+  {
+    "case": "explodeMapping",
+    "reason": "explode mapping not yet translated"
+  }
+]

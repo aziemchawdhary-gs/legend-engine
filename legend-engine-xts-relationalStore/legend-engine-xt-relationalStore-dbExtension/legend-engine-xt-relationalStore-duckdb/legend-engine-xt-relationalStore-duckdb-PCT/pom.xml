@@ -44,6 +44,17 @@
                                 <dependency>org.finos.legend.engine:legend-engine-pure-functions-legendCompiler-pure</dependency>
                                 <dependency>org.finos.legend.engine:legend-engine-pure-functions-relationalStore-PCT-pure</dependency>
                             </ignoredUnusedDeclaredDependencies>
+                            <!-- These are transitively available (mostly via the M2M SQL parity harness's
+                                 own test-scope deps) but must not be declared directly: doing so makes the
+                                 legend-pure-maven-generation-par plugin treat them as extra Pure repository
+                                 inputs, which this module's <repositories> config does not expect. -->
+                            <ignoredUsedUndeclaredDependencies>
+                                <dependency>org.finos.legend.engine:legend-engine-identity-core</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-protocol-pure</dependency>
+                                <dependency>org.finos.legend.pure:legend-pure-m2-dsl-mapping-pure</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-shared-core</dependency>
+                                <dependency>org.finos.legend.engine:legend-engine-pure-platform-dsl-store-java</dependency>
+                            </ignoredUsedUndeclaredDependencies>
                         </configuration>
                     </execution>
                 </executions>
@@ -348,6 +359,63 @@
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-xt-json-model</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- M2M SQL parity harness -->
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-language-pure-grammar</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-language-pure-compiler</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-executionPlan-generation</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-executionPlan-execution</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-executionPlan-execution-store-inMemory</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-javaPlatformBinding-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-pure-runtime-java-extension-compiled-functions-json</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.javacrumbs.json-unit</groupId>
+            <artifactId>json-unit-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.javacrumbs.json-unit</groupId>
+            <artifactId>json-unit</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- TEST -->
