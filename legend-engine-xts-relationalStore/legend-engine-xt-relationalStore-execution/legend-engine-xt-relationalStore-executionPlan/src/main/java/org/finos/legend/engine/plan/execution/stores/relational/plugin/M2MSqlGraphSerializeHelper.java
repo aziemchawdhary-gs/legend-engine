@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -64,7 +65,10 @@ public class M2MSqlGraphSerializeHelper
     public static Result execute(SQLGraphSerializeExecutionNode node, Identity identity, ExecutionState executionState)
     {
         long start = System.currentTimeMillis();
-        LOGGER.info("{}", new LogInfo(M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_START, identity.getName(), node.url));
+        // Log only the URL scheme, never the URL itself: with data: URLs (the production shape) the
+        // URL body IS the full M2M input document, and logging it would dump user data into the logs.
+        String urlScheme = urlScheme(node.url);
+        LOGGER.info("{}", new LogInfo(M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_START, identity.getName(), urlScheme));
 
         RelationalStoreExecutionState relationalStoreExecutionState = (RelationalStoreExecutionState) executionState.getStoreExecutionState(StoreType.Relational);
 
@@ -92,13 +96,14 @@ public class M2MSqlGraphSerializeHelper
             }
             resultSet = statement.executeQuery(node.sqlQuery);
 
-            Result closeCascade = newCloseCascadeResult(connection, statement, resultSet, tempFile, identity, node, start);
+            Result closeCascade = newCloseCascadeResult(connection, statement, resultSet, tempFile, identity, urlScheme, start);
+            JsonStreamingResult result = new JsonStreamingResult(new SQLGraphSerializeJsonStreamHandler(resultSet), closeCascade);
             success = true;
-            return new JsonStreamingResult(new SQLGraphSerializeJsonStreamHandler(resultSet), closeCascade);
+            return result;
         }
         catch (Exception e)
         {
-            LOGGER.error("{}", new LogInfo(M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_ERROR, identity.getName(), node.url, System.currentTimeMillis() - start));
+            LOGGER.error("{}", new LogInfo(identity.getName(), M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_ERROR.toString(), e, (double) (System.currentTimeMillis() - start)));
             throw (e instanceof RuntimeException) ? (RuntimeException) e : new RuntimeException(e);
         }
         finally
@@ -113,7 +118,7 @@ public class M2MSqlGraphSerializeHelper
         }
     }
 
-    private static Result newCloseCascadeResult(Connection connection, Statement statement, ResultSet resultSet, Path tempFile, Identity identity, SQLGraphSerializeExecutionNode node, long start)
+    private static Result newCloseCascadeResult(Connection connection, Statement statement, ResultSet resultSet, Path tempFile, Identity identity, String urlScheme, long start)
     {
         return new Result("success")
         {
@@ -130,9 +135,25 @@ public class M2MSqlGraphSerializeHelper
                 closeQuietly(statement);
                 closeQuietly(connection);
                 deleteQuietly(tempFile);
-                LOGGER.info("{}", new LogInfo(M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_STOP, identity.getName(), node.url, System.currentTimeMillis() - start));
+                LOGGER.info("{}", new LogInfo(M2MSqlLoggingEventType.M2M_SQL_GRAPH_SERIALIZE_STOP, identity.getName(), urlScheme, System.currentTimeMillis() - start));
             }
         };
+    }
+
+    /**
+     * Never log the URL itself: with {@code data:} URLs (the production shape) the URL body IS
+     * the full M2M input document. Returns {@code "unknown"} if the URL cannot be parsed.
+     */
+    private static String urlScheme(String url)
+    {
+        try
+        {
+            return URI.create(url).getScheme();
+        }
+        catch (Exception e)
+        {
+            return "unknown";
+        }
     }
 
     private static void closeQuietly(ResultSet resultSet)

@@ -25,6 +25,8 @@ import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.ExecutionPla
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.SingleExecutionPlan;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.ExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLExecutionNode;
+import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLGraphSerializeExecutionNode;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.DatabaseConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.DatabaseType;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.RelationalDatabaseConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.relational.connection.authentication.MiddleTierUserNamePasswordAuthenticationStrategy;
@@ -224,12 +226,30 @@ public class RelationalMiddleTierPlanExecutionAuthorizer implements PlanExecutio
         MutableList<ExecutionNode> allExecutionNodes = collectAllChildNodes(executionPlan.rootExecutionNode);
 
         MutableList<RelationalDatabaseConnection> nodesWithMiddleTierConnections = allExecutionNodes
-                .select(node -> node instanceof SQLExecutionNode)
-                .collect(node -> (SQLExecutionNode) node)
-                .select(sqlExecutionNode -> sqlExecutionNode.connection instanceof RelationalDatabaseConnection)
-                .collect(sqlExecutionNode -> (RelationalDatabaseConnection) sqlExecutionNode.connection)
+                .collect(RelationalMiddleTierPlanExecutionAuthorizer::extractConnection)
+                .select(connection -> connection instanceof RelationalDatabaseConnection)
+                .collect(connection -> (RelationalDatabaseConnection) connection)
                 .select(relationalDatabaseConnection -> relationalDatabaseConnection.authenticationStrategy instanceof MiddleTierUserNamePasswordAuthenticationStrategy);
         return nodesWithMiddleTierConnections;
+    }
+
+    /**
+     * Extracts the {@link DatabaseConnection} carried by any node type this authorizer knows how to
+     * inspect for middle-tier auth, or {@code null} for node types with no {@code .connection} (or
+     * unrecognized ones). Covers {@link SQLExecutionNode} and {@link SQLGraphSerializeExecutionNode} —
+     * both are single-JDBC-connection nodes that can carry a {@code MiddleTierUserNamePasswordAuthenticationStrategy}.
+     */
+    private static DatabaseConnection extractConnection(ExecutionNode node)
+    {
+        if (node instanceof SQLExecutionNode)
+        {
+            return ((SQLExecutionNode) node).connection;
+        }
+        if (node instanceof SQLGraphSerializeExecutionNode)
+        {
+            return ((SQLGraphSerializeExecutionNode) node).connection;
+        }
+        return null;
     }
 
     // TODO - this code should not assume a credential type
@@ -265,10 +285,9 @@ public class RelationalMiddleTierPlanExecutionAuthorizer implements PlanExecutio
         MutableList<ExecutionNode> allExecutionNodes = collectAllChildNodes(executionPlan.rootExecutionNode);
 
         MutableList<MiddleTierUserNamePasswordAuthenticationStrategy> middleTierUserNamePasswordAuthenticationStrategies = allExecutionNodes
-                .select(node -> node instanceof SQLExecutionNode)
-                .collect(node -> (SQLExecutionNode) node)
-                .select(sqlExecutionNode -> sqlExecutionNode.connection instanceof RelationalDatabaseConnection)
-                .collect(sqlExecutionNode -> (RelationalDatabaseConnection) sqlExecutionNode.connection)
+                .collect(RelationalMiddleTierPlanExecutionAuthorizer::extractConnection)
+                .select(connection -> connection instanceof RelationalDatabaseConnection)
+                .collect(connection -> (RelationalDatabaseConnection) connection)
                 .select(relationalDatabaseConnection -> relationalDatabaseConnection.authenticationStrategy instanceof MiddleTierUserNamePasswordAuthenticationStrategy)
                 .collect(relationalDatabaseConnection -> (MiddleTierUserNamePasswordAuthenticationStrategy) relationalDatabaseConnection.authenticationStrategy);
 

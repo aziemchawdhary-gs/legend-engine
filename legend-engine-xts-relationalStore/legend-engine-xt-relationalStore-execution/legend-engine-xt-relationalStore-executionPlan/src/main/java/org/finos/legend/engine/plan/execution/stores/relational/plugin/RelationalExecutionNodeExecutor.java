@@ -214,11 +214,19 @@ public class RelationalExecutionNodeExecutor implements ExecutionNodeVisitor<Res
      *       {@code getSQLExecutionNode().connection} after the initial {@code visit} has
      *       returned.  Mutation would race those readers even within a single execution.</li>
      * </ol>
-     * Instead, for the four {@code .connection}-bearing node types we invoke the registered
-     * preprocessors via {@link ConnectionManagerSelector} and, if any preprocessor returned a
-     * different reference, return a shallow copy of the node with the enriched connection.  If
-     * no preprocessor was registered (or every preprocessor returned the input unchanged) the
-     * original node is returned by reference — zero allocation on the hot path.
+     * Instead, for the four {@code .connection}-bearing node types handled by this method we
+     * invoke the registered preprocessors via {@link ConnectionManagerSelector} and, if any
+     * preprocessor returned a different reference, return a shallow copy of the node with the
+     * enriched connection.  If no preprocessor was registered (or every preprocessor returned the
+     * input unchanged) the original node is returned by reference — zero allocation on the hot
+     * path.
+     * <p>
+     * {@link SQLGraphSerializeExecutionNode} also carries a {@code .connection} but is deliberately
+     * <b>not</b> in this list: its executor,
+     * {@link M2MSqlGraphSerializeHelper}, resolves and preprocesses its connection itself at JDBC
+     * acquisition time (via {@code ConnectionManagerSelector.getDatabaseConnection} with
+     * {@code skipPreprocessing=false}), so routing it through this shallow-copy mechanism as well
+     * would preprocess the connection twice.
      * <p>
      * Once this method has run, callers may rely on the invariant that every
      * {@code DatabaseConnection} reachable from the returned node has been through
@@ -230,7 +238,9 @@ public class RelationalExecutionNodeExecutor implements ExecutionNodeVisitor<Res
         {
             return null;
         }
-        // Only the four .connection-bearing node types need enrichment; passthrough for the rest.
+        // Only the four .connection-bearing node types below need enrichment here; passthrough for
+        // the rest — see the class-level note above about why SQLGraphSerializeExecutionNode isn't
+        // one of them.
         if (!(node instanceof SQLExecutionNode
                 || node instanceof RelationalExecutionNode
                 || node instanceof RelationalSaveNode
