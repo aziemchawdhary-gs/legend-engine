@@ -109,6 +109,7 @@ all backends. See [Testing Strategy — PCT](testing/testing-strategy.md#5-pct-p
 | [Relation Mappings](architecture/relation-mapping.md)         | End-to-end guide for class-to-Relation (`~func`) mappings: grammar, compiler passes, transformation, routing, and SQL generation |
 | [Pre-Evaluation (preeval)](architecture/preeval.md)           | AST simplification pass that runs before the router: constant folding, let inlining, short-circuiting                           |
 | [Source Tree Calculation](architecture/source-tree-calculation.md) | calculateSourceTree pipeline and the new-instance operator pattern: intermediate-class handling, edge cases, design alternatives |
+| [M2M Execution via SQL](architecture/m2m-sql-execution.md) | `SqlModelConnection`, the plan post-processor collapse of graph-fetch/serialize into a single DuckDB SQL node, the translatability whitelist, `SQLGraphSerializeExecutionNode` runtime contract, the parity harness, and the phase-2 roadmap |
 
 ### Guides
 

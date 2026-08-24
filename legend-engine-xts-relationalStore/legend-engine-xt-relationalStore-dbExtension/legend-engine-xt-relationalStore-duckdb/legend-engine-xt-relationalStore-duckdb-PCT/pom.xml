@@ -414,6 +414,16 @@
             <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Without this, the JUnit Platform provider that Surefire auto-selects because
+             junit-jupiter-engine is on the classpath silently discovers zero tests from this
+             module's pre-existing JUnit 3/4 suites (TestPCTReportDuckDb, Test_Relational_DuckDB_PCT,
+             Test_Relational_DuckDB_Semistructured): confirmed empirically, `mvn test -Dtest=...`
+             against any of them reports "Tests run: 0" without this engine present. -->
+        <dependency>
+            <groupId>org.junit.vintage</groupId>
+            <artifactId>junit-vintage-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>net.javacrumbs.json-unit</groupId>
             <artifactId>json-unit-core</artifactId>
