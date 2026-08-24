@@ -34,8 +34,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * TDD coverage for {@link SQLGraphSerializeExecutionNode} execution: hand-builds the node (no plan
@@ -75,11 +80,15 @@ class TestSQLGraphSerializeExecutionNode
                 "INSERT INTO m2m_src_0 SELECT to_json(j) FROM read_json('{{M2M_INPUT_PATH}}', format='auto') as j;");
         node.sqlQuery = "select json_object('fullName', json_extract_string(data, '$.firstName') || ' ' || json_extract_string(data, '$.lastName')) as \"doc\" from m2m_src_0";
 
+        long tempFilesBefore = countM2mTempFiles();
         Result result = planExecutor().execute(singleNodePlan(node));
         String json = drainToString((JsonStreamingResult) result);
 
         // Single-row result -> bare object "values" (see class-level envelope finding).
         JsonAssert.assertJsonEquals("{\"builder\":{\"_type\":\"json\"},\"values\":{\"fullName\":\"John Doe\"}}", json);
+        // drainToString (DEFAULT serializer) closes the result, which must delete the helper's own
+        // copied input temp file — not node.url's source file, which the test owns.
+        assertEquals(tempFilesBefore, countM2mTempFiles());
     }
 
     @Test
@@ -93,12 +102,32 @@ class TestSQLGraphSerializeExecutionNode
                 "INSERT INTO m2m_src_0 SELECT to_json(j) FROM read_json('{{M2M_INPUT_PATH}}', format='auto') as j;");
         node.sqlQuery = "select json_object('fullName', json_extract_string(data, '$.firstName') || ' ' || json_extract_string(data, '$.lastName')) as \"doc\" from m2m_src_0 order by \"doc\"";
 
+        long tempFilesBefore = countM2mTempFiles();
         Result result = planExecutor().execute(singleNodePlan(node));
         String json = drainToString((JsonStreamingResult) result);
 
         // Multi-row result -> array "values" (see class-level envelope finding).
         JsonAssert.assertJsonEquals(
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"fullName\":\"Jane Doe\"},{\"fullName\":\"John Doe\"}]}", json);
+        assertEquals(tempFilesBefore, countM2mTempFiles());
+    }
+
+    @Test
+    void cleansUpTempFileEvenWhenSetupSqlThrows() throws Exception
+    {
+        SQLGraphSerializeExecutionNode node = new SQLGraphSerializeExecutionNode();
+        node.connection = duckDbConnection();
+        node.url = tempJsonFile("[{\"firstName\":\"John\",\"lastName\":\"Doe\"}]").toUri().toString();
+        node.setupSqls = Arrays.asList("THIS IS NOT VALID SQL AT ALL;");
+        node.sqlQuery = "select 1 as \"doc\"";
+
+        long tempFilesBefore = countM2mTempFiles();
+        SingleExecutionPlan plan = singleNodePlan(node);
+        assertThrows(RuntimeException.class, () -> planExecutor().execute(plan));
+        // The failure-path cleanup in M2MSqlGraphSerializeHelper.execute's finally block must still
+        // delete the helper's copied input temp file even though the setup SQL never let a
+        // JsonStreamingResult (and its close-cascade Result) get constructed.
+        assertEquals(tempFilesBefore, countM2mTempFiles());
     }
 
     private static RelationalDatabaseConnection duckDbConnection()
@@ -134,5 +163,23 @@ class TestSQLGraphSerializeExecutionNode
     private static String drainToString(JsonStreamingResult result)
     {
         return result.flush(result.getSerializer(SerializationFormat.DEFAULT));
+    }
+
+    /**
+     * Counts files matching the temp-file naming pattern
+     * {@code M2MSqlGraphSerializeHelper.execute} uses ({@code Files.createTempFile("m2m-sql-input-", ".json")})
+     * in the system temp directory — used to assert that the helper's own copied input file (not
+     * the source file {@link #tempJsonFile} creates) gets deleted by its close cascade.
+     */
+    private static long countM2mTempFiles() throws IOException
+    {
+        Path tmpDir = Paths.get(System.getProperty("java.io.tmpdir"));
+        try (Stream<Path> stream = Files.list(tmpDir))
+        {
+            return stream
+                    .map(p -> p.getFileName().toString())
+                    .filter(name -> name.startsWith("m2m-sql-input-") && name.endsWith(".json"))
+                    .count();
+        }
     }
 }
