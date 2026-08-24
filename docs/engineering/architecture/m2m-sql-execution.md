@@ -72,7 +72,7 @@ SqlModelConnection demo::MySqlConnection
 
 The spec originally proposed hooking into the M2M store contract's own planning dispatch
 (`storeContract.pure`). That does not work: `contract::supports`
-(`core/store/m2m/storeContract.pure:58-62`) explicitly excludes `serialize` from the M2M store
+(`core/store/m2m/storeContract.pure:57-61`) explicitly excludes `serialize` from the M2M store
 cluster, so `serialize` is never routed to the M2M contract in the first place — it is planned
 as a `PureExpressionPlatformExecutionNode` (a "platform" node, executed as generated Java)
 wrapping whatever the M2M contract produced for the graph fetch underneath it. There is no
@@ -193,8 +193,10 @@ Rejected (fall back to Java):
   (`explainUntranslatableExpression`).
 
 **Extending the whitelist**: to translate a new function, add it to
-`sqlTranslatableFunctionWhitelist()` (currently `plus`/`minus`/`times`/`divide` over
-`String`/`Integer`/`Float`/`Number`, and `toOne`) — the entries so far are exactly what the
+`sqlTranslatableFunctionWhitelist()` — currently exactly nine signatures, not a full
+type×operator matrix: `plus` over `String`, `Integer`, `Float`, and `Number`; `minus` over
+`Number` only; `times` over `Integer` and `Number`; `divide` over `Number` only (fixed
+`Number[1], Number[1] -> Float[1]` arity); and `toOne`. The entries so far are exactly what the
 parity corpus proves safe; extend only when a new translatable parity case demands it, and add
 that case to the parity harness rather than the fallback manifest. To translate a new mapping
 shape (e.g. `~filter`), add a case to `untranslatableReasons`/`rootLevelReasons` and to
