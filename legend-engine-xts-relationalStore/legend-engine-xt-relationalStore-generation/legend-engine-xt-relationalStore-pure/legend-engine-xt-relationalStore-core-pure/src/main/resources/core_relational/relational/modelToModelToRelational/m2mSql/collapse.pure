@@ -82,11 +82,29 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlCollapseRejection(no
 {
   if(!$node.expression->instanceOf(SimpleFunctionExpression) || !$node.expression->cast(@SimpleFunctionExpression).func->in(meta::relational::m2mSql::m2mSqlSerializeFunctions()),
      | 'not a graph fetch serialize node',
-     | if($node.executionNodes->size() != 1 || !$node.executionNodes->at(0)->instanceOf(StoreMappingGlobalGraphFetchExecutionNode),
-          | 'serialize node does not wrap exactly one store-mapping graph fetch node',
-          | $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode)->m2mSqlGlobalNodeRejection($node->m2mSqlSerializeTree())
+     | if(!$node->m2mSqlSerializeExpressionIsCurtailed(),
+          | 'serialize expression carries more than the curtailed graph fetch collection',
+          | if($node.executionNodes->size() != 1 || !$node.executionNodes->at(0)->instanceOf(StoreMappingGlobalGraphFetchExecutionNode),
+               | 'serialize node does not wrap exactly one store-mapping graph fetch node',
+               | $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode)->m2mSqlGlobalNodeRejection($node->m2mSqlSerializeTree())
+              )
          )
     );
+}
+
+// The collapse replaces the whole platform node, so anything the residual serialize expression still
+// carries beyond `serialize(<curtailed collection>, tree)` would be silently dropped. Only the child
+// node is inspected on the success path, so this pins the expression itself: exactly two parameters,
+// and the collection parameter must be the empty placeholder that
+// meta::pure::platform::executionPlan::generation::serializeFunctionProcessor substitutes for the
+// sub-expression it moved into the child node — never a function application left in place.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeExpressionIsCurtailed(node:PureExpressionPlatformExecutionNode[1]):Boolean[1]
+{
+  let parameters = $node.expression->cast(@SimpleFunctionExpression).parametersValues->evaluateAndDeactivate();
+  ($parameters->size() == 2)
+    && !$parameters->at(0)->instanceOf(SimpleFunctionExpression)
+    && $parameters->at(0)->instanceOf(InstanceValue)
+    && $parameters->at(0)->cast(@InstanceValue).values->isEmpty();
 }
 
 function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(globalNode:StoreMappingGlobalGraphFetchExecutionNode[1], serializeTree:GraphFetchTree[0..1]):String[0..1]

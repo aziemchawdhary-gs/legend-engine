@@ -171,6 +171,26 @@ Class meta::relational::m2mSql::tests::toManyComplex::S_Person
   addresses: meta::relational::m2mSql::tests::toManyComplex::S_Address[*];
 }
 
+// $src.address->toOne() passes explainUntranslatableExpression (toOne is whitelisted) and is not
+// to-many, so every other check admits it -- but it is not a plain navigation, so the SQL projection
+// has no JSON path for the subtree's presence check.
+Class meta::relational::m2mSql::tests::toOneComplex::Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::toOneComplex::Person
+{
+  address: meta::relational::m2mSql::tests::toOneComplex::Address[1];
+}
+Class meta::relational::m2mSql::tests::toOneComplex::S_Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::toOneComplex::S_Person
+{
+  address: meta::relational::m2mSql::tests::toOneComplex::S_Address[0..1];
+}
+
 // An Enumeration-typed source property passed straight through, with no EnumerationMapping in
 // sight: synthesizeSourceStore has no semi-structured extract type for an enumeration and would
 // `fail` on it, so the gate has to reject it before the collapse ever calls into synthesis.
@@ -312,6 +332,20 @@ Mapping meta::relational::m2mSql::tests::primitiveCollection::TestMapping
   {
     ~src meta::relational::m2mSql::tests::primitiveCollection::S_Item
     tags: $src.tags
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::toOneComplex::TestMapping
+(
+  *meta::relational::m2mSql::tests::toOneComplex::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::toOneComplex::S_Person
+    address: $src.address->toOne()
+  }
+  *meta::relational::m2mSql::tests::toOneComplex::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::toOneComplex::S_Address
+    city: $src.city
   }
 )
 
@@ -520,4 +554,20 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedEnumeratio
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable, | 'expected an auto-mapped enumeration property to be rejected');
   assert($result.reason->toOne()->contains('enumeration'), | 'expected an enumeration reason, got: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testNonNavigationComplexPropertyIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::toOneComplex::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::toOneComplex::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::toOneComplex::Person{address{city}}}#->cast(@RootGraphFetchTree<Any>);
+
+  // Pin the precondition, so this cannot start passing for an unrelated reason: every *other* check
+  // in the gate accepts this transform.
+  let transform = $setImpl->propertyMappingsByPropertyName('address')->at(0)->cast(@PurePropertyMapping).transform.expressionSequence->toOne();
+  assert($transform->meta::relational::m2mSql::explainUntranslatableExpression()->isEmpty(), | 'expected ->toOne() to be accepted by the expression whitelist');
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable, | 'expected a non-navigation complex property transform to be rejected');
+  assert($result.reason->toOne()->contains('plain source navigation'), | 'expected a plain-source-navigation reason, got: ' + $result.reason->orElse(''));
 }

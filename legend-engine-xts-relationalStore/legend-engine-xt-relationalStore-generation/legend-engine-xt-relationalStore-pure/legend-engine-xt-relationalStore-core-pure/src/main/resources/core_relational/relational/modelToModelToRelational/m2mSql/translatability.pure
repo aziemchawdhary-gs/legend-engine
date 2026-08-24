@@ -115,10 +115,21 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                          | if($propertyTree.subTrees->isEmpty(),
                               | [],
                               {|
-                                let nestedSetImpl = meta::relational::m2mSql::resolveNestedSetImplementation($propertyMappings->at(0), $mapping);
-                                if($nestedSetImpl->isEmpty(),
-                                   | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
-                                   | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping)
+                                // A complex property's transform has to be a plain chain of source property
+                                // accesses, because the SQL projection derives the subtree's presence check
+                                // from it as a JSON path (jsonProjection.pure's sourceJsonPath). The
+                                // whitelist admits `toOne` etc., which pass every other check but have no
+                                // JSON path, so this has to be rejected here rather than blowing up in the
+                                // projection.
+                                if(!$propertyMappings->forAll(pm | $pm.transform.expressionSequence->toOne()->meta::relational::m2mSql::isPlainSourceNavigation()),
+                                   | [('complex property ' + $propertyTree.property.name->toOne() + ' is not a plain source navigation')],
+                                   {|
+                                     let nestedSetImpl = meta::relational::m2mSql::resolveNestedSetImplementation($propertyMappings->at(0), $mapping);
+                                     if($nestedSetImpl->isEmpty(),
+                                        | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
+                                        | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping)
+                                       );
+                                   }
                                   );
                               }
                              )
@@ -177,6 +188,25 @@ function meta::relational::m2mSql::explainUntranslatableExpression(vs:ValueSpeci
         ),
     a:ValueSpecification[1] |
       'unsupported expression in transform'
+  ]);
+}
+
+// True only for a bare chain of source property accesses rooted at the transform's own parameter —
+// `$src`, `$src.address`, `$src.home.address`. This is a strictly narrower shape than
+// explainUntranslatableExpression admits, and is the precondition jsonProjection.pure's sourceJsonPath
+// needs to turn a complex property's source expression into a JSON path.
+function meta::relational::m2mSql::isPlainSourceNavigation(vs:ValueSpecification[1]):Boolean[1]
+{
+  $vs->match(
+  [
+    v:VariableExpression[1] |
+      true,
+    sfe:SimpleFunctionExpression[1] |
+      $sfe.func->instanceOf(Property)
+        && ($sfe.parametersValues->evaluateAndDeactivate()->size() == 1)
+        && $sfe.parametersValues->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isPlainSourceNavigation(),
+    v:ValueSpecification[1] |
+      false
   ]);
 }
 
