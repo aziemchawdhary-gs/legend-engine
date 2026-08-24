@@ -113,6 +113,7 @@ all backends. See [Testing Strategy — PCT](testing/testing-strategy.md#5-pct-p
 | [Relational DynaFunctions](architecture/relational-dynafunctions.md) | Dyna functions authored in `###Relational` `Filter`/`Join`/`View` bodies: what is supported, how it is dispatched, the validation gap, and a proposal for contracts and self-documenting coverage |
 | [Pre-Evaluation (preeval)](architecture/preeval.md)           | AST simplification pass that runs before the router: constant folding, let inlining, short-circuiting                           |
 | [Source Tree Calculation](architecture/source-tree-calculation.md) | calculateSourceTree pipeline and the new-instance operator pattern: intermediate-class handling, edge cases, design alternatives |
+| [M2M Execution via SQL](architecture/m2m-sql-execution.md) | `SqlModelConnection`, the plan post-processor collapse of graph-fetch/serialize into a single DuckDB SQL node, the translatability whitelist, `SQLGraphSerializeExecutionNode` runtime contract, the parity harness, and the phase-2 roadmap |
 
 ### Guides
 
