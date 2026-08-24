@@ -117,6 +117,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.Relati
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.RelationalSaveNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.RelationalTdsInstantiationExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLExecutionNode;
+import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLGraphSerializeExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SequenceExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.GraphFetchExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.LoadFromResultSetAsValueTuplesTempTableStrategy;
@@ -447,6 +448,18 @@ public class RelationalExecutionNodeExecutor implements ExecutionNodeVisitor<Res
                 }
 
                 return result;
+            }
+        }
+        else if (executionNode instanceof SQLGraphSerializeExecutionNode)
+        {
+            SQLGraphSerializeExecutionNode sqlGraphSerializeExecutionNode = (SQLGraphSerializeExecutionNode) executionNode;
+            this.executionState.topSpan = GlobalTracer.get().activeSpan();
+            try (Scope scope = GlobalTracer.get().buildSpan("Relational DB Execution").startActive(true))
+            {
+                scope.span().setTag("databaseType", sqlGraphSerializeExecutionNode.connection.type.name());
+                scope.span().setTag("executionTraceID", this.executionState.execID);
+                scope.span().setTag("sql", sqlGraphSerializeExecutionNode.sqlQuery);
+                return M2MSqlGraphSerializeHelper.execute(sqlGraphSerializeExecutionNode, this.identity, this.executionState);
             }
         }
         else if (executionNode instanceof RelationalSaveNode)

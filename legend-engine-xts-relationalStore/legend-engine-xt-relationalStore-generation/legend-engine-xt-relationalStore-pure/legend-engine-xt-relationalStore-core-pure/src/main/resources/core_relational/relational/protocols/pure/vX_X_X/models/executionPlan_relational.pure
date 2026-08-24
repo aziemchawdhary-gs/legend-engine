@@ -26,6 +26,14 @@ Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::SQLExecutionNode 
    isMutationSQL : Boolean[0..1];
 }
 
+Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::SQLGraphSerializeExecutionNode extends meta::protocols::pure::vX_X_X::metamodel::executionPlan::ExecutionNode
+{
+   connection : meta::protocols::pure::vX_X_X::metamodel::store::relational::connection::DatabaseConnection[1];
+   setupSqls : String[*];
+   sqlQuery : String[1];
+   url : String[1];
+}
+
 Class meta::protocols::pure::vX_X_X::metamodel::executionPlan::RelationalSaveNode extends meta::protocols::pure::vX_X_X::metamodel::executionPlan::ExecutionNode
 {
    sqlComment : String[0..1];

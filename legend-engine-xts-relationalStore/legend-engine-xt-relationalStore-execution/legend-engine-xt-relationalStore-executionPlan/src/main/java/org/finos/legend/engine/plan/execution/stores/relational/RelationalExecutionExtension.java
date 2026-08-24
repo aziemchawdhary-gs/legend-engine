@@ -27,6 +27,7 @@ import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.Relati
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.RelationalInstantiationExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.RelationalSaveNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLExecutionNode;
+import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.SQLGraphSerializeExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.RelationalGraphFetchExecutionNode;
 import org.finos.legend.engine.shared.core.identity.Identity;
 
@@ -49,6 +50,7 @@ public class RelationalExecutionExtension implements ExecutionExtension
             if (executionNode instanceof RelationalBlockExecutionNode
                     || executionNode instanceof CreateAndPopulateTempTableExecutionNode
                     || executionNode instanceof SQLExecutionNode
+                    || executionNode instanceof SQLGraphSerializeExecutionNode
                     || executionNode instanceof RelationalSaveNode
                     || executionNode instanceof RelationalExecutionNode
                     || executionNode instanceof RelationalInstantiationExecutionNode
