@@ -9,6 +9,6 @@
   },
   {
     "case": "explodeMapping",
-    "reason": "explode mapping not yet translated"
+    "reason": "explode property mapping not yet translated"
   }
 ]

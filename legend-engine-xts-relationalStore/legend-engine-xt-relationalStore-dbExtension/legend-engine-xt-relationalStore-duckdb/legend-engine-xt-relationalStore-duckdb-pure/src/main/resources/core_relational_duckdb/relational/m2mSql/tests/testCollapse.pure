@@ -1,0 +1,214 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Person
+{
+  firstName : String[1];
+  lastName  : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Person
+{
+  fullName : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Filtered
+{
+  name   : String[1];
+  active : Boolean[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Filtered
+{
+  name : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Address
+{
+  city : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Employee
+{
+  name    : String[1];
+  address : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Address[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Address
+{
+  city : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Employee
+{
+  name    : String[1];
+  address : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Address[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Constrained
+{
+  name : String[1];
+}
+
+// The Java graph fetch path enforces this constraint on every fetched object; the SQL projection has
+// no equivalent, so the collapse must decline rather than silently drop the check.
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Constrained
+[
+  nonEmptyName: $this.name->length() > 0
+]
+{
+  name : String[1];
+}
+
+###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::collapseMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Person: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Person
+    fullName: $src.firstName + ' ' + $src.lastName
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filteredMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Filtered: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Filtered
+    ~filter $src.active
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::constrainedMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Constrained: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Constrained
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::nestedMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Employee: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Employee
+    name: $src.name,
+    address: $src.address
+  }
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Address: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Address
+    city: $src.city
+  }
+)
+
+###Pure
+import meta::core::runtime::*;
+import meta::external::store::model::*;
+import meta::pure::executionPlan::*;
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::execution::*;
+import meta::pure::mapping::modelToModel::graphFetch::executionPlan::*;
+import meta::relational::extension::*;
+import meta::relational::m2mSql::*;
+import meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::*;
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions():meta::pure::extension::Extension[*]
+{
+  relationalExtensions()->concatenate(meta::relational::m2mSql::duckDB::duckDBM2MSqlExtension());
+}
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(class:Class<Any>[1]):Runtime[1]
+{
+  ^Runtime(connectionStores = ^ConnectionStore(
+     element    = ^ModelStore(),
+     connection = ^SqlModelConnection(class = $class, url = 'file:/tmp/m2mSqlCollapseTest.json')));
+}
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(plan:ExecutionPlan[1]):Boolean[1]
+{
+  $plan.rootExecutionNode->meta::pure::executionPlan::allNodes(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions())
+                         ->exists(n | $n->instanceOf(meta::relational::m2mSql::SQLGraphSerializeExecutionNode));
+}
+
+function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(plan:ExecutionPlan[1]):Boolean[1]
+{
+  $plan.rootExecutionNode->meta::pure::executionPlan::allNodes(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions())
+                         ->exists(n | $n->instanceOf(InMemoryRootGraphFetchExecutionNode));
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testSerializeGraphFetchCollapses():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Person.all()->graphFetch(#{Person {fullName}}#)->serialize(#{Person {fullName}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::collapseMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Person),
+               $extensions
+             );
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'InMemory nodes must be gone, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+
+  let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
+  assertEquals('file:/tmp/m2mSqlCollapseTest.json', $node.url);
+  assertEquals('select json_object(\'fullName\', "m2m_sub".fullName) as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "fullName" from m2m_src_0 as "root") as "m2m_sub"', $node.sqlQuery);
+}
+
+// A mapping filter is on canPlanM2MSql's rejection list, so the plan must come out exactly as the
+// M2M store contract built it.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testUntranslatableStaysOnJavaPath():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Filtered.all()->graphFetch(#{Filtered {name}}#)->serialize(#{Filtered {name}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filteredMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Filtered),
+               $extensions
+             );
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filtered mapping must not be collapsed');
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
+}
+
+// The nested object is guarded by its own presence column so an absent source `address` serialises as
+// `null` rather than as `{"city":null}` — that is what the Java M2M serializer emits.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testNestedCollapseGuardsAbsentObject():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Employee.all()->graphFetch(#{Employee {name, address {city}}}#)->serialize(#{Employee {name, address {city}}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::nestedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Employee),
+               $extensions
+             );
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+
+  let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
+  assertEquals('select json_object(\'name\', "m2m_sub".name, \'address\', case when "m2m_sub".address__m2mPresent then json_object(\'city\', "m2m_sub".address__city) else null end) as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", "root".data->\'address\'->\'city\' as "address__city", json_extract_string("root".data, \'$.address\') is not null as address__m2mPresent from m2m_src_0 as "root") as "m2m_sub"', $node.sqlQuery);
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testConstrainedTargetStaysOnJavaPath():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Constrained.all()->graphFetch(#{Constrained {name}}#)->serialize(#{Constrained {name}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::constrainedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Constrained),
+               $extensions
+             );
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a constrained target class must not be collapsed');
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
+}

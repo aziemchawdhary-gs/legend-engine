@@ -1,0 +1,205 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import meta::external::store::model::*;
+import meta::external::store::relational::runtime::*;
+import meta::pure::executionPlan::*;
+import meta::pure::extension::*;
+import meta::pure::graphFetch::*;
+import meta::pure::graphFetch::executionPlan::*;
+import meta::pure::graphFetch::routing::*;
+import meta::pure::mapping::*;
+import meta::pure::mapping::modelToModel::graphFetch::executionPlan::*;
+import meta::pure::metamodel::type::*;
+import meta::pure::metamodel::valuespecification::*;
+import meta::relational::m2mSql::*;
+
+// The plan rewrite that turns an M2M graph-fetch/serialize plan over a SqlModelConnection into a
+// single SQL node. Registered through Extension.postProcessExecutionPlan, so it sees the fully
+// assembled Pure plan before platform binding generates any Java for the nodes it removes.
+//
+// Every guard is a fallback, never a failure: a shape this slice cannot translate is left exactly as
+// the M2M store contract built it and runs on the Java path as before.
+function meta::relational::m2mSql::m2mSqlPlanPostProcessor(defaultConnection:meta::external::store::relational::runtime::DatabaseConnection[1]):Function<{ExecutionPlan[1], meta::pure::extension::Extension[*], DebugContext[1] -> ExecutionPlan[1]}>[1]
+{
+  {plan:ExecutionPlan[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1] |
+     ^$plan(rootExecutionNode = $plan.rootExecutionNode->meta::relational::m2mSql::collapseNode($defaultConnection, $extensions, $debug))
+  }
+}
+
+function meta::relational::m2mSql::collapseNode(node:ExecutionNode[1], defaultConnection:meta::external::store::relational::runtime::DatabaseConnection[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1]):ExecutionNode[1]
+{
+  $node->match(
+  [
+    // The only wrapper the plan funnel puts above the serialize node (function-parameter validation).
+    s:SequenceExecutionNode[1]               | ^$s(executionNodes = $s.executionNodes->map(n | $n->collapseNode($defaultConnection, $extensions, $debug))),
+    p:PureExpressionPlatformExecutionNode[1] | $p->collapseSerializeNode($defaultConnection, $extensions, $debug),
+    n:ExecutionNode[1]                       | $n
+  ]);
+}
+
+function <<access.private>> meta::relational::m2mSql::collapseSerializeNode(node:PureExpressionPlatformExecutionNode[1], defaultConnection:meta::external::store::relational::runtime::DatabaseConnection[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1]):ExecutionNode[1]
+{
+  let reason = $node->m2mSqlCollapseRejection();
+  if($reason->isNotEmpty(),
+     | print(if($debug.debug, | 'M2M SQL fallback: ' + $reason->toOne() + '\n', | ''));
+       $node;,
+     {|
+       let globalNode = $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode);
+       let routedTree = $globalNode.graphFetchTree.tree->cast(@RoutedRootGraphFetchTree<Any>);
+       let setImpl    = $routedTree.sets->toOne()->cast(@meta::external::store::model::PureInstanceSetImplementation);
+       let connection = $globalNode.localGraphFetchExecutionNode->cast(@InMemoryRootGraphFetchExecutionNode)
+                                   .executionNodes->at(0)->cast(@StoreStreamReadingExecutionNode)
+                                   .connection->cast(@SqlModelConnection);
+       let query      = meta::relational::m2mSql::buildM2MSqlQuery($setImpl, $routedTree->cast(@RootGraphFetchTree<Any>), $defaultConnection, $extensions, $debug);
+       print(if($debug.debug, | 'M2M SQL collapse: ' + $query.sqlQuery + '\n', | ''));
+       ^meta::relational::m2mSql::SQLGraphSerializeExecutionNode
+       (
+         resultType = ^ResultType(genericType = ^GenericType(rawType = String)),
+         connection = $defaultConnection,
+         setupSqls  = $query.setupSqls,
+         sqlQuery   = $query.sqlQuery,
+         url        = $connection.url
+       );
+     }
+    );
+}
+
+// Returns why this node cannot be collapsed, or [] when it can. Written as a cascade rather than a
+// list of conditions so that each guard only runs once the shape it assumes has been established.
+function <<access.private>> meta::relational::m2mSql::m2mSqlCollapseRejection(node:PureExpressionPlatformExecutionNode[1]):String[0..1]
+{
+  if(!$node.expression->instanceOf(SimpleFunctionExpression) || !$node.expression->cast(@SimpleFunctionExpression).func->in(meta::relational::m2mSql::m2mSqlSerializeFunctions()),
+     | 'not a graph fetch serialize node',
+     | if($node.executionNodes->size() != 1 || !$node.executionNodes->at(0)->instanceOf(StoreMappingGlobalGraphFetchExecutionNode),
+          | 'serialize node does not wrap exactly one store-mapping graph fetch node',
+          | $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode)->m2mSqlGlobalNodeRejection($node->m2mSqlSerializeTree())
+         )
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(globalNode:StoreMappingGlobalGraphFetchExecutionNode[1], serializeTree:GraphFetchTree[0..1]):String[0..1]
+{
+  if($serializeTree->isEmpty(),
+     | 'serialize target tree is not a plain graph fetch tree',
+     | if($globalNode.children->isNotEmpty() || $globalNode.xStorePropertyMapping->isNotEmpty(),
+          | 'cross-store graph fetch not yet translated',
+          | if(!$globalNode.graphFetchTree.tree->instanceOf(RoutedRootGraphFetchTree),
+               | 'graph fetch tree is not a routed root tree',
+               {|
+                 let routedTree = $globalNode.graphFetchTree.tree->cast(@RoutedRootGraphFetchTree<Any>);
+                 if($routedTree.sets->size() != 1 || !$routedTree.sets->toOne()->instanceOf(meta::external::store::model::PureInstanceSetImplementation),
+                    | 'root class mapping is not a single Pure instance set implementation',
+                    | if(!meta::relational::m2mSql::sameTreeShape($serializeTree->toOne(), $routedTree->cast(@GraphFetchTree)),
+                         | 'serialize tree differs from the graph fetch tree',
+                         | if(meta::relational::m2mSql::treeClasses($routedTree->cast(@GraphFetchTree))->exists(c | $c.constraints->isNotEmpty()),
+                              | 'constraints on the target classes are not yet translated',
+                              | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree)
+                             )
+                        )
+                   );
+               }
+              )
+         )
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(localNode:LocalGraphFetchExecutionNode[1], routedTree:RoutedRootGraphFetchTree<Any>[1]):String[0..1]
+{
+  if(!$localNode->instanceOf(InMemoryRootGraphFetchExecutionNode) || $localNode->instanceOf(InMemoryCrossStoreGraphFetchExecutionNode),
+     | 'local graph fetch node is not a plain in-memory root node',
+     {|
+       let inMemory = $localNode->cast(@InMemoryRootGraphFetchExecutionNode);
+       if($inMemory.filter->isNotEmpty() || $inMemory.checked,
+          | 'filtered or checked graph fetch not yet translated',
+          | if($inMemory.executionNodes->size() != 1 || !$inMemory.executionNodes->at(0)->instanceOf(StoreStreamReadingExecutionNode),
+               | 'in-memory node does not read from a single store stream',
+               {|
+                 let reader = $inMemory.executionNodes->at(0)->cast(@StoreStreamReadingExecutionNode);
+                 if(!$reader.connection->instanceOf(SqlModelConnection),
+                    | 'source connection is not a SqlModelConnection',
+                    | if($reader.checked,
+                         | 'checked graph fetch not yet translated',
+                         {|
+                           let setImpl = $routedTree.sets->toOne()->cast(@meta::external::store::model::PureInstanceSetImplementation);
+                           let verdict = meta::relational::m2mSql::canPlanM2MSql($setImpl, $routedTree->cast(@RootGraphFetchTree<Any>), $setImpl.parent);
+                           if($verdict.translatable, | [], | $verdict.reason);
+                         }
+                        )
+                   );
+               }
+              )
+         );
+     }
+    );
+}
+
+// The serialize call's own target tree, or [] when the second argument is not a plain tree literal.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTree(node:PureExpressionPlatformExecutionNode[1]):GraphFetchTree[0..1]
+{
+  let parameters = $node.expression->cast(@SimpleFunctionExpression).parametersValues->evaluateAndDeactivate();
+  if($parameters->size() < 2 || !$parameters->at(1)->instanceOf(InstanceValue),
+     | [],
+     {|
+       let values = $parameters->at(1)->cast(@InstanceValue).values;
+       if($values->size() != 1 || !$values->toOne()->instanceOf(RootGraphFetchTree),
+          | [],
+          | $values->toOne()->cast(@GraphFetchTree)
+         );
+     }
+    );
+}
+
+// Structural equality of two graph fetch trees by class and property path. The serialize tree is a
+// plain tree and the graph fetch tree a routed one, so their printed forms differ and cannot be
+// compared directly.
+function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1]):Boolean[1]
+{
+  let aProperties = $a.propertyTrees();
+  let bProperties = $b.propertyTrees();
+  ($a.subTypeTrees->isEmpty() && $b.subTypeTrees->isEmpty())
+    && ($a->m2mSqlTreeClass() == $b->m2mSqlTreeClass())
+    && ($aProperties->size() == $bProperties->size())
+    && $aProperties->size()->range()->forAll(i |
+         let x = $aProperties->at($i);
+         let y = $bProperties->at($i);
+         ($x.property.name == $y.property.name) && ($x.alias == $y.alias) && sameTreeShape($x->cast(@GraphFetchTree), $y->cast(@GraphFetchTree));
+       );
+}
+
+function <<access.private>> meta::relational::m2mSql::m2mSqlTreeClass(tree:GraphFetchTree[1]):Type[0..1]
+{
+  $tree->match(
+  [
+    r:RootGraphFetchTree<Any>[1]  | $r.class,
+    p:PropertyGraphFetchTree[1]   | $p.property.genericType.rawType,
+    g:GraphFetchTree[1]           | []
+  ]);
+}
+
+function <<access.private>> meta::relational::m2mSql::treeClasses(tree:GraphFetchTree[1]):Class<Any>[*]
+{
+  $tree->m2mSqlTreeClass()->filter(t | $t->instanceOf(Class))->cast(@Class<Any>)
+       ->concatenate($tree.propertyTrees()->map(pt | $pt->cast(@GraphFetchTree)->treeClasses()));
+}
+
+// Only the plain `serialize(collection, tree)` overload is translated in this slice: the checked and
+// AlloySerializationConfig overloads change the emitted document in ways the SQL projection does not
+// reproduce.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeFunctions():Function<Any>[*]
+{
+  [
+    meta::pure::graphFetch::execution::serialize_T_MANY__RootGraphFetchTree_1__String_1_
+  ];
+}
