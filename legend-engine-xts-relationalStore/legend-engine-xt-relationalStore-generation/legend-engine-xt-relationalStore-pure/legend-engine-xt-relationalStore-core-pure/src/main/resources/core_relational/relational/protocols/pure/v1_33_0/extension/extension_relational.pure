@@ -128,6 +128,16 @@ function meta::protocols::pure::v1_33_0::extension::getRelationalExtension():met
                            isResultColumnsDynamic = $rel.isResultColumnsDynamic,
                            isMutationSQL = $rel.isMutationSQL
                         ),
+                     rel:meta::relational::m2mSql::SQLGraphSerializeExecutionNode[1]|
+                        ^meta::protocols::pure::v1_33_0::metamodel::executionPlan::SQLGraphSerializeExecutionNode(
+                           _type = 'sqlGraphSerialize',
+                           resultType = $rel.resultType->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::executionPlan::transformResultType($mapping, $extensions),
+                           resultSizeRange = $rel.resultSizeRange->isEmpty()->if(|[],|$rel.resultSizeRange->toOne()->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::domain::transformMultiplicity()),
+                           connection = $rel.connection->meta::protocols::pure::v1_33_0::transformation::fromPureGraph::connection::transformDatabaseConnection($extensions),
+                           setupSqls = $rel.setupSqls,
+                           sqlQuery = $rel.sqlQuery,
+                           url = $rel.url
+                        ),
                      rel:meta::relational::mapping::RelationalSaveNode[1]|
                         ^meta::protocols::pure::v1_33_0::metamodel::executionPlan::RelationalSaveNode(
                            _type = 'relationalSave',

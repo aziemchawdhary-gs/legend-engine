@@ -129,6 +129,16 @@ function meta::protocols::pure::vX_X_X::extension::getRelationalExtension():meta
                            isResultColumnsDynamic = $rel.isResultColumnsDynamic,
                            isMutationSQL = $rel.isMutationSQL
                         ),
+                     rel:meta::relational::m2mSql::SQLGraphSerializeExecutionNode[1]|
+                        ^meta::protocols::pure::vX_X_X::metamodel::executionPlan::SQLGraphSerializeExecutionNode(
+                           _type = 'sqlGraphSerialize',
+                           resultType = $rel.resultType->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::executionPlan::transformResultType($extensions),
+                           resultSizeRange = $rel.resultSizeRange->isEmpty()->if(|[],|$rel.resultSizeRange->toOne()->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::domain::transformMultiplicity()),
+                           connection = $rel.connection->meta::protocols::pure::vX_X_X::transformation::fromPureGraph::connection::transformDatabaseConnection($extensions),
+                           setupSqls = $rel.setupSqls,
+                           sqlQuery = $rel.sqlQuery,
+                           url = $rel.url
+                        ),
                      rel:meta::relational::mapping::RelationalSaveNode[1]|
                         ^meta::protocols::pure::vX_X_X::metamodel::executionPlan::RelationalSaveNode(
                            _type = 'relationalSave',
