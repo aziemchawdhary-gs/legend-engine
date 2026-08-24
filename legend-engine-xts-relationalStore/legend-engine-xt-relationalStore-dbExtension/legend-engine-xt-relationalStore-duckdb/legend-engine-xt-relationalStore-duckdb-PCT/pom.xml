@@ -54,6 +54,7 @@
                                 <dependency>org.finos.legend.pure:legend-pure-m2-dsl-mapping-pure</dependency>
                                 <dependency>org.finos.legend.engine:legend-engine-shared-core</dependency>
                                 <dependency>org.finos.legend.engine:legend-engine-pure-platform-dsl-store-java</dependency>
+                                <dependency>com.fasterxml.jackson.core:jackson-databind</dependency>
                             </ignoredUsedUndeclaredDependencies>
                         </configuration>
                     </execution>
@@ -363,6 +364,11 @@
         </dependency>
 
         <!-- M2M SQL parity harness -->
+        <dependency>
+            <groupId>org.finos.legend.engine</groupId>
+            <artifactId>legend-engine-xt-relationalStore-duckdb-pure</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.finos.legend.engine</groupId>
             <artifactId>legend-engine-language-pure-grammar</artifactId>

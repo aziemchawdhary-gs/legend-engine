@@ -1,0 +1,36 @@
+// Copyright 2026 Goldman Sachs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+###Pure
+import meta::external::store::relational::runtime::*;
+import meta::relational::runtime::*;
+
+// Activates SQL execution for translatable M2M mappings read through a SqlModelConnection: appending
+// this extension to the active extension list registers the plan collapse in collapse.pure. It lives
+// in the DuckDB module because the connection the collapsed node carries names DuckDB explicitly —
+// an in-process, file-less database, since the source document is loaded from the node's own url.
+function meta::relational::m2mSql::duckDB::duckDBM2MSqlExtension():meta::pure::extension::Extension[1]
+{
+  ^meta::pure::extension::Extension
+  (
+    type = 'm2mSqlDuckDB',
+    postProcessExecutionPlan = meta::relational::m2mSql::m2mSqlPlanPostProcessor(
+       ^RelationalDatabaseConnection
+       (
+         type                    = DatabaseType.DuckDB,
+         datasourceSpecification = ^meta::pure::alloy::connections::alloy::specification::DuckDBDatasourceSpecification(path = ''),
+         authenticationStrategy  = ^meta::pure::alloy::connections::alloy::authentication::TestDatabaseAuthenticationStrategy()
+       ))
+  );
+}

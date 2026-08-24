@@ -14,8 +14,11 @@
 
 package org.finos.legend.engine.plan.execution.stores.relational.test.duckdb.m2msql;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.javacrumbs.jsonunit.JsonAssert;
 import org.eclipse.collections.api.RichIterable;
+import org.eclipse.collections.impl.factory.Lists;
 import org.finos.legend.engine.language.pure.compiler.Compiler;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.HelperValueSpecificationBuilder;
 import org.finos.legend.engine.language.pure.compiler.toPureGraph.PureModel;
@@ -24,29 +27,42 @@ import org.finos.legend.engine.plan.execution.PlanExecutor;
 import org.finos.legend.engine.plan.execution.result.StreamingResult;
 import org.finos.legend.engine.plan.execution.result.serialization.SerializationFormat;
 import org.finos.legend.engine.plan.execution.stores.inMemory.plugin.InMemory;
+import org.finos.legend.engine.plan.execution.stores.relational.plugin.Relational;
 import org.finos.legend.engine.plan.generation.PlanGenerator;
 import org.finos.legend.engine.plan.generation.transformers.LegendPlanTransformers;
 import org.finos.legend.engine.plan.platform.PlanPlatform;
 import org.finos.legend.engine.protocol.pure.m3.function.LambdaFunction;
 import org.finos.legend.engine.protocol.pure.v1.model.context.PureModelContextData;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.SingleExecutionPlan;
+import org.finos.legend.engine.shared.core.ObjectMapperFactory;
 import org.finos.legend.engine.shared.core.deployment.DeploymentMode;
 import org.finos.legend.engine.shared.core.identity.Identity;
 import org.finos.legend.engine.shared.core.url.EngineUrlStreamHandlerFactory;
 import org.finos.legend.pure.generated.Root_meta_pure_extension_Extension;
-import org.finos.legend.pure.generated.core_java_platform_binding_legendJavaPlatformBinding_store_m2m_m2mLegendJavaPlatformBindingExtension;
+import org.finos.legend.pure.generated.core_relational_duckdb_relational_m2mSql_m2mSqlDuckDBExtension;
+import org.finos.legend.pure.generated.core_relational_java_platform_binding_legendJavaPlatformBinding_relationalLegendJavaPlatformBindingExtension;
 import org.finos.legend.pure.m3.coreinstance.meta.pure.mapping.Mapping;
 import org.finos.legend.pure.generated.Root_meta_core_runtime_Runtime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 /**
  * Parity harness for M2M SQL execution phase 1.
  *
  * Runs the same M2M model + mapping + query through a {@code JsonModelConnection} and a
- * {@code SqlModelConnection} and asserts identical serialized JSON output. As of this task,
- * {@code SqlModelConnection} has no SQL plan rewrite yet (that lands in a later task), so both
- * connection types take the same Java M2M execution path and every case must pass on parity.
+ * {@code SqlModelConnection} and asserts identical serialized JSON output. The
+ * {@code SqlModelConnection} side additionally asserts plan shape: for a translatable case the
+ * graph-fetch/serialize sub-plan must have collapsed into a single {@code sqlGraphSerialize} node
+ * with no Java platform implementation left on it, and for a case on the fallback list
+ * ({@code m2msql/expected-fallbacks.json}) the Java in-memory graph-fetch nodes must still be there.
  */
 public class TestM2MSqlParity
 {
@@ -78,9 +94,15 @@ public class TestM2MSqlParity
             Mapping mapping = pureModel.getMapping(MAPPING_PATH);
             Root_meta_core_runtime_Runtime runtime = pureModel.getRuntime(RUNTIME_PATH);
 
-            RichIterable<? extends Root_meta_pure_extension_Extension> extensions =
-                    core_java_platform_binding_legendJavaPlatformBinding_store_m2m_m2mLegendJavaPlatformBindingExtension
-                            .Root_meta_pure_mapping_modelToModel_executionPlan_platformBinding_legendJava_inMemoryExtensionsWithLegendJavaPlatformBinding__Extension_MANY_(pureModel.getExecutionSupport());
+            // Relational rather than in-memory-only extensions: the collapse plans a relational query
+            // against the synthetic source store, so the relational store contract has to be active on
+            // both sides of the comparison. duckDBM2MSqlExtension is what registers the collapse.
+            RichIterable<Root_meta_pure_extension_Extension> extensions =
+                    Lists.mutable.<Root_meta_pure_extension_Extension>empty()
+                            .withAll(core_relational_java_platform_binding_legendJavaPlatformBinding_relationalLegendJavaPlatformBindingExtension
+                                    .Root_meta_relational_executionPlan_platformBinding_legendJava_relationalExtensionsWithLegendJavaPlatformBinding__Extension_MANY_(pureModel.getExecutionSupport()))
+                            .with(core_relational_duckdb_relational_m2mSql_m2mSqlDuckDBExtension
+                                    .Root_meta_relational_m2mSql_duckDB_duckDBM2MSqlExtension__Extension_1_(pureModel.getExecutionSupport()));
 
             return PlanGenerator.generateExecutionPlan(lambda, mapping, runtime, null, pureModel, "vX_X_X", PlanPlatform.JAVA, "test", extensions, LegendPlanTransformers.transformers);
         }
@@ -97,7 +119,9 @@ public class TestM2MSqlParity
     {
         try
         {
-            PlanExecutor executor = PlanExecutor.newPlanExecutor(InMemory.build());
+            // Both store executors: the fallback cases run entirely in memory, the collapsed ones entirely
+            // in DuckDB through the relational store executor.
+            PlanExecutor executor = PlanExecutor.newPlanExecutor(InMemory.build(), Relational.build());
             StreamingResult streamingResult = (StreamingResult) executor.execute(plan);
             return streamingResult.flush(streamingResult.getSerializer(SerializationFormat.DEFAULT));
         }
@@ -112,12 +136,81 @@ public class TestM2MSqlParity
         return runPlan(compileAndPlan(grammar, queryFn));
     }
 
-    private void assertParity(String grammarTemplate, String queryFn, String expectedJson)
+    /**
+     * Runs one corpus case through both connection types and asserts byte parity, plus the shape of
+     * the SQL-side plan. {@code caseName} is looked up in {@code m2msql/expected-fallbacks.json}: a
+     * listed case must NOT collapse, an unlisted one must.
+     */
+    private void assertParity(String caseName, String grammarTemplate, String queryFn, String expectedJson)
     {
         String javaPath = execute(grammarTemplate.replace("${CONNECTION_TYPE}", "JsonModelConnection"), queryFn);
-        String sqlPath = execute(grammarTemplate.replace("${CONNECTION_TYPE}", "SqlModelConnection"), queryFn);
+
+        SingleExecutionPlan sqlPlan = compileAndPlan(grammarTemplate.replace("${CONNECTION_TYPE}", "SqlModelConnection"), queryFn);
+        assertPlanShape(caseName, sqlPlan);
+        String sqlPath = runPlan(sqlPlan);
+
         JsonAssert.assertJsonEquals(expectedJson, javaPath);
         JsonAssert.assertJsonEquals(javaPath, sqlPath);
+    }
+
+    private void assertPlanShape(String caseName, SingleExecutionPlan plan)
+    {
+        JsonNode planJson = ObjectMapperFactory.getNewStandardObjectMapperWithPureProtocolExtensionSupports().valueToTree(plan);
+        Set<String> nodeTypes = new HashSet<>();
+        boolean[] hasImplementation = {false};
+        collectPlanShape(planJson, nodeTypes, hasImplementation);
+
+        if (expectedFallbackCases().contains(caseName))
+        {
+            assertFalse(nodeTypes.contains("sqlGraphSerialize"), caseName + " is on the fallback list but was collapsed to SQL; node types: " + nodeTypes);
+            assertTrue(nodeTypes.contains("inMemoryRootGraphFetch"), caseName + " must keep the Java in-memory graph fetch node; node types: " + nodeTypes);
+            assertTrue(nodeTypes.contains("storeStreamReading"), caseName + " must keep the Java store-stream reading node; node types: " + nodeTypes);
+        }
+        else
+        {
+            assertTrue(nodeTypes.contains("sqlGraphSerialize"), caseName + " was expected to collapse to SQL; node types: " + nodeTypes);
+            assertFalse(nodeTypes.contains("inMemoryRootGraphFetch"), caseName + " still carries an in-memory graph fetch node; node types: " + nodeTypes);
+            assertFalse(nodeTypes.contains("storeStreamReading"), caseName + " still carries a store-stream reading node; node types: " + nodeTypes);
+            // The whole point of collapsing before platform binding: no Java is generated for the
+            // nodes that were removed, and the SQL node needs none of its own.
+            assertFalse(hasImplementation[0], caseName + " collapsed but the plan still carries a Java platform implementation");
+        }
+    }
+
+    private static void collectPlanShape(JsonNode node, Set<String> nodeTypes, boolean[] hasImplementation)
+    {
+        if (node.isObject())
+        {
+            JsonNode type = node.get("_type");
+            if (type != null && type.isTextual())
+            {
+                nodeTypes.add(type.asText());
+            }
+            JsonNode implementation = node.get("implementation");
+            if (implementation != null && !implementation.isNull())
+            {
+                hasImplementation[0] = true;
+            }
+        }
+        for (JsonNode child : node)
+        {
+            collectPlanShape(child, nodeTypes, hasImplementation);
+        }
+    }
+
+    private static Set<String> expectedFallbackCases()
+    {
+        try (InputStream in = Objects.requireNonNull(TestM2MSqlParity.class.getClassLoader().getResourceAsStream("m2msql/expected-fallbacks.json"), "m2msql/expected-fallbacks.json not on the test classpath"))
+        {
+            JsonNode fallbacks = new ObjectMapper().readTree(in);
+            Set<String> names = new HashSet<>();
+            fallbacks.forEach(f -> names.add(f.get("case").asText()));
+            return names;
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
     }
 
     private static final String SIMPLE_RENAME_GRAMMAR =
@@ -169,7 +262,7 @@ public class TestM2MSqlParity
     @Test
     void simpleRename()
     {
-        assertParity(SIMPLE_RENAME_GRAMMAR, SIMPLE_RENAME_QUERY, SIMPLE_RENAME_EXPECTED);
+        assertParity("simpleRename", SIMPLE_RENAME_GRAMMAR, SIMPLE_RENAME_QUERY, SIMPLE_RENAME_EXPECTED);
     }
 
     private static final String COMPUTED_PRIMITIVE_GRAMMAR =
@@ -221,7 +314,7 @@ public class TestM2MSqlParity
     @Test
     void computedPrimitive()
     {
-        assertParity(COMPUTED_PRIMITIVE_GRAMMAR, COMPUTED_PRIMITIVE_QUERY, COMPUTED_PRIMITIVE_EXPECTED);
+        assertParity("computedPrimitive", COMPUTED_PRIMITIVE_GRAMMAR, COMPUTED_PRIMITIVE_QUERY, COMPUTED_PRIMITIVE_EXPECTED);
     }
 
     private static final String NESTED_COMPLEX_TO_ONE_GRAMMAR =
@@ -232,6 +325,7 @@ public class TestM2MSqlParity
             "Class m2msql::nestedComplexToOne::Person\n" +
             "{\n" +
             "   name: String[1];\n" +
+            "   nickname: String[0..1];\n" +
             "   address: m2msql::nestedComplexToOne::Address[0..1];\n" +
             "}\n" +
             "Class m2msql::nestedComplexToOne::S_Address\n" +
@@ -241,6 +335,7 @@ public class TestM2MSqlParity
             "Class m2msql::nestedComplexToOne::S_Person\n" +
             "{\n" +
             "   name: String[1];\n" +
+            "   nickname: String[0..1];\n" +
             "   address: m2msql::nestedComplexToOne::S_Address[0..1];\n" +
             "}\n" +
             "\n" +
@@ -251,6 +346,7 @@ public class TestM2MSqlParity
             "   {\n" +
             "      ~src m2msql::nestedComplexToOne::S_Person\n" +
             "      name: $src.name,\n" +
+            "      nickname: $src.nickname,\n" +
             "      address: $src.address\n" +
             "   }\n" +
             "   *m2msql::nestedComplexToOne::Address: Pure\n" +
@@ -264,7 +360,7 @@ public class TestM2MSqlParity
             "${CONNECTION_TYPE} test::conn\n" +
             "{\n" +
             "  class: m2msql::nestedComplexToOne::S_Person;\n" +
-            "  url: 'data:application/json,{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\"}}';\n" +
+            "  url: 'data:application/json,[{\"name\":\"Jane\",\"nickname\":\"Janey\",\"address\":{\"city\":\"NYC\"}},{\"name\":\"John\"}]';\n" +
             "}\n" +
             "\n" +
             "###Runtime\n" +
@@ -281,14 +377,18 @@ public class TestM2MSqlParity
             "}\n";
 
     private static final String NESTED_COMPLEX_TO_ONE_QUERY =
-            "|m2msql::nestedComplexToOne::Person.all()->graphFetch(#{m2msql::nestedComplexToOne::Person{name,address{city}}}#)->serialize(#{m2msql::nestedComplexToOne::Person{name,address{city}}}#)";
+            "|m2msql::nestedComplexToOne::Person.all()->graphFetch(#{m2msql::nestedComplexToOne::Person{name,nickname,address{city}}}#)->serialize(#{m2msql::nestedComplexToOne::Person{name,nickname,address{city}}}#)";
 
-    private static final String NESTED_COMPLEX_TO_ONE_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\"}}}";
+    private static final String NESTED_COMPLEX_TO_ONE_EXPECTED =
+            "{\"builder\":{\"_type\":\"json\"},\"values\":["
+            + "{\"name\":\"Jane\",\"nickname\":\"Janey\",\"address\":{\"city\":\"NYC\"}},"
+            + "{\"name\":\"John\",\"nickname\":null,\"address\":null}"
+            + "]}";
 
     @Test
     void nestedComplexToOne()
     {
-        assertParity(NESTED_COMPLEX_TO_ONE_GRAMMAR, NESTED_COMPLEX_TO_ONE_QUERY, NESTED_COMPLEX_TO_ONE_EXPECTED);
+        assertParity("nestedComplexToOne", NESTED_COMPLEX_TO_ONE_GRAMMAR, NESTED_COMPLEX_TO_ONE_QUERY, NESTED_COMPLEX_TO_ONE_EXPECTED);
     }
 
     private static final String AUTO_MAPPED_GRAMMAR =
@@ -339,7 +439,7 @@ public class TestM2MSqlParity
     @Test
     void autoMapped()
     {
-        assertParity(AUTO_MAPPED_GRAMMAR, AUTO_MAPPED_QUERY, AUTO_MAPPED_EXPECTED);
+        assertParity("autoMapped", AUTO_MAPPED_GRAMMAR, AUTO_MAPPED_QUERY, AUTO_MAPPED_EXPECTED);
     }
 
     private static final String PRIMITIVE_COLLECTION_GRAMMAR =
@@ -390,7 +490,7 @@ public class TestM2MSqlParity
     @Test
     void primitiveCollection()
     {
-        assertParity(PRIMITIVE_COLLECTION_GRAMMAR, PRIMITIVE_COLLECTION_QUERY, PRIMITIVE_COLLECTION_EXPECTED);
+        assertParity("primitiveCollection", PRIMITIVE_COLLECTION_GRAMMAR, PRIMITIVE_COLLECTION_QUERY, PRIMITIVE_COLLECTION_EXPECTED);
     }
 
     private static final String MAPPING_FILTER_GRAMMAR =
@@ -443,7 +543,7 @@ public class TestM2MSqlParity
     @Test
     void mappingFilter()
     {
-        assertParity(MAPPING_FILTER_GRAMMAR, MAPPING_FILTER_QUERY, MAPPING_FILTER_EXPECTED);
+        assertParity("mappingFilter", MAPPING_FILTER_GRAMMAR, MAPPING_FILTER_QUERY, MAPPING_FILTER_EXPECTED);
     }
 
     private static final String ENUM_TRANSFORM_GRAMMAR =
@@ -508,7 +608,7 @@ public class TestM2MSqlParity
     @Test
     void enumTransform()
     {
-        assertParity(ENUM_TRANSFORM_GRAMMAR, ENUM_TRANSFORM_QUERY, ENUM_TRANSFORM_EXPECTED);
+        assertParity("enumTransform", ENUM_TRANSFORM_GRAMMAR, ENUM_TRANSFORM_QUERY, ENUM_TRANSFORM_EXPECTED);
     }
 
     private static final String EXPLODE_MAPPING_GRAMMAR =
@@ -559,6 +659,6 @@ public class TestM2MSqlParity
     @Test
     void explodeMapping()
     {
-        assertParity(EXPLODE_MAPPING_GRAMMAR, EXPLODE_MAPPING_QUERY, EXPLODE_MAPPING_EXPECTED);
+        assertParity("explodeMapping", EXPLODE_MAPPING_GRAMMAR, EXPLODE_MAPPING_QUERY, EXPLODE_MAPPING_EXPECTED);
     }
 }

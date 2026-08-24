@@ -68,18 +68,41 @@ function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSet
     );
 }
 
-function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1]):String[*]
+// Rejections that depend only on the shape of the property tree node, before any property mapping is
+// resolved.
+function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGraphFetchTree[1]):String[*]
 {
   if($propertyTree.subType->isNotEmpty(),
      | ['subType graph fetch trees not yet translated'],
+     // A to-many complex property needs one JSON object per source element; the flat single-row
+     // projection in jsonProjection.pure cannot express that and asserts rather than falling back,
+     // so it has to be rejected here instead.
+     | if($propertyTree.subTrees->isNotEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
+          | ['to-many complex property not yet translated'],
+          | []
+         )
+    );
+}
+
+function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1]):String[*]
+{
+  let shapeReasons = meta::relational::m2mSql::propertyShapeReasons($propertyTree);
+  if($shapeReasons->isNotEmpty(),
+     | $shapeReasons,
      {|
        let propertyMappings = $setImpl->propertyMappingsByPropertyName($propertyTree.property.name->toOne())
                                        ->filter(pm | $pm->instanceOf(PurePropertyMapping))
                                        ->cast(@PurePropertyMapping);
        if($propertyMappings->isEmpty(),
-          | if($propertyTree.property->isPropertyAutoMapped($setImpl),
-               | [],
-               | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')]
+          | if(!$propertyTree.property->isPropertyAutoMapped($setImpl),
+               | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
+               // Same hole as in explainUntranslatableExpression, on the branch that has no transform
+               // lambda to walk: an auto-mapped enumeration property would reach the synthetic source
+               // store's `fail` rather than falling back.
+               | if($propertyTree.property.genericType.rawType->isNotEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(Enumeration),
+                    | [('enumeration-typed source property not yet translated: ' + $propertyTree.property.name->toOne())],
+                    | []
+                   )
               ),
           | if($propertyMappings->exists(pm | $pm.transformer->isNotEmpty()),
                | ['enumeration transformer not yet translated'],
@@ -140,10 +163,17 @@ function meta::relational::m2mSql::explainUntranslatableExpression(vs:ValueSpeci
          | 'unsupported literal in transform'
         ),
     sfe:SimpleFunctionExpression[1] |
-      if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
-         | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
-           if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
-         | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
+      // An Enumeration-typed source property satisfies instanceOf(DataType), so the synthetic source
+      // store (meta::relational::m2mSql::pureTypeToSemiStructuredExtractType) takes its primitive
+      // branch and `fail`s hard on it. That is a loud crash, not a fallback, so it has to be caught
+      // here — this is distinct from an enumeration *transformer*, which is rejected by its caller.
+      if($sfe.func->instanceOf(Property) && $sfe.genericType.rawType->isNotEmpty() && $sfe.genericType.rawType->toOne()->instanceOf(Enumeration),
+         | 'enumeration-typed source property not yet translated: ' + $sfe.functionName->orElse($sfe.func->elementToPath()),
+         | if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
+              | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
+                if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
+              | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
+             )
         ),
     a:ValueSpecification[1] |
       'unsupported expression in transform'

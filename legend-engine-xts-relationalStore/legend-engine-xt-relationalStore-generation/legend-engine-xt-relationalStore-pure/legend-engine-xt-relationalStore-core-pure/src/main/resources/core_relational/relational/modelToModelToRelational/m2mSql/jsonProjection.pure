@@ -48,15 +48,35 @@ Class meta::relational::m2mSql::M2MSqlColumn
   transform  : LambdaFunction<Any>[1];
 }
 
+// One nested complex property of the target tree, and the JSON path of the *source* object it is
+// built from. The inner query gets an extra boolean column per entry saying whether that source
+// object is there at all; without it an absent object and a present object whose selected leaves are
+// all null both flatten to the same all-NULL columns, and the outer projection would invent a
+// `{"street":null}` where the Java M2M serializer emits `null`.
+Class meta::relational::m2mSql::M2MSqlPresenceColumn
+{
+  columnName : String[1];
+  sourcePath : String[1];
+}
+
+// What one walk of the target tree yields: the primitive leaf columns the inner `project` produces,
+// and the presence columns injected alongside them.
+Class meta::relational::m2mSql::M2MSqlProjection
+{
+  columns   : M2MSqlColumn[*];
+  presences : M2MSqlPresenceColumn[*];
+}
+
 // Builds the complete SQL for one translatable M2M mapping + target tree: an inner relational query
 // (source navigation with the mapping's transforms inlined, planned against the synthetic
 // semi-structured source store) wrapped in an outer SELECT whose single column assembles the JSON
 // document with DuckDB's json_object/json_array.
 function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], connection:DatabaseConnection[1], extensions:Extension[*], debug:DebugContext[1]):M2MSqlQuery[1]
 {
-  let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-  let srcVar   = ^VariableExpression(name = 'src', genericType = ^GenericType(rawType = $srcClass), multiplicity = PureOne);
-  let columns  = flattenTargetTree($setImpl, $targetTree->cast(@GraphFetchTree), $srcVar, [], $setImpl.parent, $srcClass);
+  let srcClass   = $setImpl.srcClass->toOne()->cast(@Class<Any>);
+  let srcVar     = ^VariableExpression(name = 'src', genericType = ^GenericType(rawType = $srcClass), multiplicity = PureOne);
+  let projection = flattenTargetTree($setImpl, $targetTree->cast(@GraphFetchTree), $srcVar, [], $setImpl.parent, $srcClass);
+  let columns    = $projection.columns;
   assert($columns->isNotEmpty(), | 'M2M SQL projection needs at least one primitive leaf in the target tree');
 
   let queryLambda = ^LambdaFunction<{->Any[*]}>
@@ -69,9 +89,10 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                       expressionSequence    = buildProjectExpression($srcClass, $columns)
                     );
 
-  let source   = synthesizeSourceStore($srcClass, $targetTree->calculateSourceTree($setImpl.parent, $extensions));
-  let plan     = meta::pure::executionPlan::executionPlan($queryLambda, $source.mapping, ^Runtime(connectionStores = ^ConnectionStore(element = $source.database, connection = $connection)), $extensions, $debug);
-  let innerSql = $plan.rootExecutionNode->meta::pure::executionPlan::allNodes($extensions)
+  let source     = synthesizeSourceStore($srcClass, $targetTree->calculateSourceTree($setImpl.parent, $extensions));
+  let innerConn  = $connection->withPresenceColumns($source, $projection.presences);
+  let plan       = meta::pure::executionPlan::executionPlan($queryLambda, $source.mapping, ^Runtime(connectionStores = ^ConnectionStore(element = $source.database, connection = $innerConn)), $extensions, $debug);
+  let innerSql   = $plan.rootExecutionNode->meta::pure::executionPlan::allNodes($extensions)
                                         ->filter(n | $n->instanceOf(meta::relational::mapping::SQLExecutionNode))
                                         ->cast(@meta::relational::mapping::SQLExecutionNode).sqlQuery->toOne();
 
@@ -103,12 +124,67 @@ function <<access.private>> meta::relational::m2mSql::pathSegment(propertyTree:P
   $propertyTree.alias->orElse($propertyTree.property.name->toOne());
 }
 
+// The inner query's boolean column for one nested complex property. Named off the same flattened
+// path as its leaves, with a suffix no Pure property name would collide with by accident.
+function <<access.private>> meta::relational::m2mSql::presenceColumnName(path:String[*]):String[1]
+{
+  $path->joinStrings('__') + '__m2mPresent';
+}
+
+// The presence columns cannot go through `project`: the router rejects a projection whose path ends
+// on a class, and `isNotEmpty` over a semi-structured navigation routes to an EXISTS sub-select that
+// has no join to build. They are injected into the generated SELECT instead, through the connection's
+// own SQL post-processor hook, as `json_extract_string("root".data, '$.<path>') is not null`.
+function <<access.private>> meta::relational::m2mSql::withPresenceColumns(connection:DatabaseConnection[1], source:M2MSqlSourceStore[1], presences:M2MSqlPresenceColumn[*]):DatabaseConnection[1]
+{
+  if($presences->isEmpty(),
+     | $connection,
+     {|
+       let jsonRead = ^TableAliasColumn(alias = $source.rootSet.mainTableAlias, column = $source.jsonColumn);
+       let aliases  = $presences->map(p |
+                        ^Alias
+                        (
+                          name               = $p.columnName,
+                          relationalElement  = ^DynaFunction
+                                               (
+                                                 name       = 'isNotNull',
+                                                 parameters = ^DynaFunction
+                                                              (
+                                                                name       = 'extractFromSemiStructured',
+                                                                parameters = [$jsonRead, ^Literal(value = $p.sourcePath), ^Literal(value = 'VARCHAR')]
+                                                              )
+                                               )
+                        )
+                      );
+       ^$connection(sqlQueryPostProcessors = $connection.sqlQueryPostProcessors->concatenate(
+          {q:meta::relational::metamodel::relation::SelectSQLQuery[1] | ^Result<meta::relational::metamodel::relation::SelectSQLQuery|1>(values = ^$q(columns = $q.columns->concatenate($aliases)))}
+       ));
+     }
+    );
+}
+
+// The JSON path, from the source document root, of the object a composed source expression navigates
+// to. Only a plain chain of property accesses rooted at $src can be expressed as a JSON path, which
+// is all canPlanM2MSql admits for a complex property (its type would not otherwise check out).
+function <<access.private>> meta::relational::m2mSql::sourceJsonPath(vs:ValueSpecification[1]):String[*]
+{
+  $vs->match(
+  [
+    v:VariableExpression[1] | [],
+    sfe:SimpleFunctionExpression[1] |
+      assert($sfe.func->instanceOf(Property), | 'M2M SQL presence check needs a plain source navigation, found ' + $sfe.functionName->orElse($sfe.func->elementToPath()));
+      $sfe.parametersValues->evaluateAndDeactivate()->toOne()->sourceJsonPath()->concatenate($sfe.func->cast(@Property<Nil,Any|*>).name->toOne());,
+    v:ValueSpecification[1] |
+      fail('M2M SQL presence check needs a plain source navigation'); [];
+  ]);
+}
+
 // (a) Flatten the target tree to columns. `srcExpr` is the source-side expression, in terms of the
 // root $src variable, that the current set implementation's transforms apply to: the root variable
 // itself at the top level, and the parent complex property's transform below that.
-function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], srcExpr:ValueSpecification[1], prefix:String[*], mapping:Mapping[1], rootSrcClass:Class<Any>[1]):M2MSqlColumn[*]
+function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], srcExpr:ValueSpecification[1], prefix:String[*], mapping:Mapping[1], rootSrcClass:Class<Any>[1]):M2MSqlProjection[1]
 {
-  $tree.propertyTrees()->map(pt |
+  let parts = $tree.propertyTrees()->map(pt |
     let path    = $prefix->concatenate($pt->pathSegment());
     let pms     = $setImpl->propertyMappingsByPropertyName($pt.property.name->toOne())
                           ->filter(pm | $pm->instanceOf(PurePropertyMapping))
@@ -117,19 +193,26 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
                      | autoMappedSourceExpression($setImpl, $pt.property, $srcExpr),
                      | substituteSourceVariable($pms->at(0).transform, $srcExpr));
     if($pt.subTrees->isEmpty(),
-       | ^M2MSqlColumn
-         (
-           path       = $path,
-           columnName = $path->joinStrings('__'),
-           transform  = buildColumnLambda($rootSrcClass, $expr)
-         ),
+       | ^M2MSqlProjection(columns = ^M2MSqlColumn
+                                     (
+                                       path       = $path,
+                                       columnName = $path->joinStrings('__'),
+                                       transform  = buildColumnLambda($rootSrcClass, $expr)
+                                     )),
        | // A to-many complex property would need one JSON object per source element, which this flat
-         // single-row projection cannot express. canPlanM2MSql does not yet reject it, so guard here.
+         // single-row projection cannot express. canPlanM2MSql rejects it; this is the backstop for a
+         // direct caller that skipped the gate.
          assert($pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(), | 'to-many complex property ' + $pt.property.name->toOne() + ' is not supported by the M2M SQL projection');
          let nested = nestedSetImplementation($pms, $pt, $mapping);
-         flattenTargetTree($nested, $pt->cast(@GraphFetchTree), $expr, $path, $mapping, $rootSrcClass);
+         let sub    = flattenTargetTree($nested, $pt->cast(@GraphFetchTree), $expr, $path, $mapping, $rootSrcClass);
+         ^M2MSqlProjection
+         (
+           columns   = $sub.columns,
+           presences = ^M2MSqlPresenceColumn(columnName = presenceColumnName($path), sourcePath = $expr->sourceJsonPath()->joinStrings('.'))->concatenate($sub.presences)
+         );
       );
   );
+  ^M2MSqlProjection(columns = $parts.columns, presences = $parts.presences);
 }
 
 // An auto-mapped property has no property mapping at all: the source class carries a property of the
@@ -232,15 +315,12 @@ function <<access.private>> meta::relational::m2mSql::buildProjectExpression(src
 }
 
 // (c) The outer JSON document, mirroring the target tree's nesting. Leaves reference the inner
-// query's columns by the same flattened name flattenTargetTree assigned them.
+// query's columns by the same flattened name flattenTargetTree assigned them; a nested object is
+// guarded by that subtree's presence column so an absent source object serialises as `null` and not
+// as a structure of null leaves.
 //
-// Two known divergences from the Java M2M serializer, both data-dependent (the SQL text is the same
-// either way) and both deliberately left alone here — Task 13 owns the parity normalization
-// decision, so changing the emitted SQL now would pre-empt it:
-//   - a missing optional primitive serialises as an explicit `null` rather than being omitted;
-//   - the nested json_object below is emitted unconditionally, with no null check on the parent
-//     complex property, so a source row with no `address` yields {"address":{"street":null}} rather
-//     than a null/absent `address`.
+// A missing optional primitive deliberately serialises as an explicit `null`: that is what the Java
+// M2M serializer emits too (verified end to end in TestM2MSqlParity), so there is nothing to omit.
 function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpression(tree:GraphFetchTree[1], prefix:String[*]):RelationalOperationElement[1]
 {
   let parameters = $tree.propertyTrees()->map(pt |
@@ -248,7 +328,15 @@ function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpressio
     let path    = $prefix->concatenate($segment);
     let value   = if($pt.subTrees->isEmpty(),
                      | m2mSqlLeafReference($path->joinStrings('__'), !$pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
-                     | buildJsonDocumentExpression($pt->cast(@GraphFetchTree), $path));
+                     | ^DynaFunction
+                       (
+                         name       = 'if',
+                         parameters = [
+                                        m2mSqlColumnReference(presenceColumnName($path)),
+                                        buildJsonDocumentExpression($pt->cast(@GraphFetchTree), $path),
+                                        ^Literal(value = ^meta::relational::metamodel::SQLNull())
+                                      ]
+                       )->cast(@RelationalOperationElement));
     [^Literal(value = $segment)->cast(@RelationalOperationElement), $value];
   );
   ^DynaFunction(name = 'jsonObject', parameters = $parameters);
@@ -260,10 +348,17 @@ function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpressio
 // no such treatment: root-level ones are already SQL scalars and nested ones are already JSON.
 function <<access.private>> meta::relational::m2mSql::m2mSqlLeafReference(columnName:String[1], isCollection:Boolean[1]):RelationalOperationElement[1]
 {
+  let ref = m2mSqlColumnReference($columnName);
+  if($isCollection, | ^DynaFunction(name = 'parseJson', parameters = $ref)->cast(@RelationalOperationElement), | $ref);
+}
+
+// A reference to one column of the wrapping sub-query. The database/schema/table around it are
+// throwaway scaffolding: only the alias and column names survive into the generated SQL.
+function <<access.private>> meta::relational::m2mSql::m2mSqlColumnReference(columnName:String[1]):RelationalOperationElement[1]
+{
   let database = ^Database(name = 'm2mSqlWrapperDb', package = meta::relational::m2mSql);
   let schema   = ^Schema(name = 'default', database = $database);
   let table    = ^Table(name = m2mSqlSubQueryAlias(), schema = $schema);
   let column   = ^Column(name = $columnName, type = ^meta::relational::metamodel::datatype::Varchar(size = 8192));
-  let ref      = ^TableAliasColumn(alias = ^TableAlias(database = $database, name = m2mSqlSubQueryAlias(), relationalElement = $table), column = $column);
-  if($isCollection, | ^DynaFunction(name = 'parseJson', parameters = $ref)->cast(@RelationalOperationElement), | $ref->cast(@RelationalOperationElement));
+  ^TableAliasColumn(alias = ^TableAlias(database = $database, name = m2mSqlSubQueryAlias(), relationalElement = $table), column = $column)->cast(@RelationalOperationElement);
 }
