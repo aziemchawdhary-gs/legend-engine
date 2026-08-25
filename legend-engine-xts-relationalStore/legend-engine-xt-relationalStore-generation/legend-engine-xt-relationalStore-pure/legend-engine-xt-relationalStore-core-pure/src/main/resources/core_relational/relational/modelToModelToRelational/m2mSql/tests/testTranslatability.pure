@@ -191,6 +191,22 @@ Class meta::relational::m2mSql::tests::toOneComplex::S_Person
   address: meta::relational::m2mSql::tests::toOneComplex::S_Address[0..1];
 }
 
+// A complex property mapped to the bare source object: the nested target is built from the source
+// document root itself. It is a plain source navigation, but its JSON path has no segments, so the
+// subtree's presence column would read an empty path.
+Class meta::relational::m2mSql::tests::selfSource::Inner
+{
+  value: String[1];
+}
+Class meta::relational::m2mSql::tests::selfSource::Wrapper
+{
+  inner: meta::relational::m2mSql::tests::selfSource::Inner[1];
+}
+Class meta::relational::m2mSql::tests::selfSource::S_Flat
+{
+  value: String[1];
+}
+
 // An Enumeration-typed source property passed straight through, with no EnumerationMapping in
 // sight: synthesizeSourceStore has no semi-structured extract type for an enumeration and would
 // `fail` on it, so the gate has to reject it before the collapse ever calls into synthesis.
@@ -360,6 +376,20 @@ Mapping meta::relational::m2mSql::tests::toManyComplex::TestMapping
   {
     ~src meta::relational::m2mSql::tests::toManyComplex::S_Address
     city: $src.city
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::selfSource::TestMapping
+(
+  *meta::relational::m2mSql::tests::selfSource::Wrapper: Pure
+  {
+    ~src meta::relational::m2mSql::tests::selfSource::S_Flat
+    inner: $src
+  }
+  *meta::relational::m2mSql::tests::selfSource::Inner: Pure
+  {
+    ~src meta::relational::m2mSql::tests::selfSource::S_Flat
+    value: $src.value
   }
 )
 
@@ -570,4 +600,23 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNonNavigationComplex
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable, | 'expected a non-navigation complex property transform to be rejected');
   assert($result.reason->toOne()->contains('plain source navigation'), | 'expected a plain-source-navigation reason, got: ' + $result.reason->orElse(''));
+}
+
+// The complement of the case above: a bare `$src` clears both the expression whitelist and the
+// plain-navigation check, but jsonProjection.pure's sourceJsonPath would hand the presence column an
+// empty JSON path, so the gate has to reject it in its own right.
+function <<test.Test>> meta::relational::m2mSql::tests::testBareSourceComplexPropertyIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::selfSource::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::selfSource::Wrapper)->cast(@PureInstanceSetImplementation)->toOne();
+
+  // Pin the preconditions, so this cannot start passing for an unrelated reason.
+  let transform = $setImpl->propertyMappingsByPropertyName('inner')->at(0)->cast(@PurePropertyMapping).transform.expressionSequence->toOne();
+  assert($transform->meta::relational::m2mSql::explainUntranslatableExpression()->isEmpty(), | 'expected a bare $src to be accepted by the expression whitelist');
+  assert($transform->meta::relational::m2mSql::isPlainSourceNavigation(), | 'expected a bare $src to be accepted as a plain source navigation');
+
+  let tree   = #{meta::relational::m2mSql::tests::selfSource::Wrapper{inner{value}}}#->cast(@RootGraphFetchTree<Any>);
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable, | 'expected a complex property mapped to the bare source object to be rejected');
+  assert($result.reason->toOne()->contains('source property access'), | 'expected a source-property-access reason, got: ' + $result.reason->orElse(''));
 }

@@ -114,6 +114,18 @@ wide blast radius — the postprocessor walks *every* plan generated with the ex
 not just plans that use `SqlModelConnection` — but every guard below fails closed, so it is
 provably inert on any plan that doesn't match the exact shape this phase targets.
 
+**Classpath asymmetry.** The registration lives in the DuckDB *plan-generation* module, so a
+deployment carrying that module will collapse matching plans whether or not it can run the result:
+any such server must also carry the relational *execution* module and the DuckDB JDBC driver, or the
+collapsed `SQLGraphSerializeExecutionNode` will fail at execution time with no fallback left.
+
+A rewriting `postProcessExecutionPlan` hook is also responsible for the plan-level aggregates
+derived from the node tree, which are computed before the hook runs. `authDependent` and `kerberos`
+are recomputed from the post-processed tree by `executionPlan(...)` itself;
+`processingTemplateFunctions` is not (a stale support function is inert, whereas a stale
+`authDependent` would change how the plan is executed). See the field's own comment in
+`extension.pure`.
+
 ## 4. The collapse: `collapse.pure`
 
 Entry point: `meta::relational::m2mSql::m2mSqlPlanPostProcessor`
@@ -150,6 +162,15 @@ without this extension registered. The checks, in the order `m2mSqlCollapseRejec
 8. It reads from exactly one `StoreStreamReadingExecutionNode`, whose `connection` is a
    `SqlModelConnection` and which is itself unchecked.
 9. `canPlanM2MSql(setImpl, targetTree, mapping)` (Section 5) returns `translatable = true`.
+10. None of the **source** classes carry constraints
+    (`m2mSqlSourceConstraintRejection`). The mirror of guard 6: on the Java path the source
+    document is deserialized into real source instances and the stream reader enforces their
+    classes' constraints, but the SQL path never materializes a source object, so the checks would
+    silently stop running. The source classes are the classes of `calculateSourceTree(targetTree,
+    mapping, extensions)` — the same tree `buildM2MSqlQuery` synthesizes the source store from —
+    which covers the root `srcClass`, every nested set implementation's `srcClass`, and any
+    intermediate class a transform navigates through. Checked last, so it only ever runs on a shape
+    the collapse would otherwise have accepted.
 
 On success, `buildM2MSqlQuery` (Section 6) builds the SQL and the whole subtree — platform node,
 global graph fetch node, in-memory node, store-stream-reading node — is replaced by a single
@@ -187,6 +208,9 @@ Rejected (fall back to Java):
   projection derives the nested object's presence check from this expression as a JSON path, so
   anything else (even a call in the arithmetic/string whitelist) would crash the projection
   rather than degrade gracefully.
+- A complex property mapped to the bare source object (`address: $src`). It *is* a plain source
+  navigation, but its JSON path is empty, which is no path at all: the presence column would read
+  `'$.'` and be permanently false. Rejected explicitly rather than left to the projection.
 - A property transform lambda expression that isn't one of: `$src` itself, a primitive literal,
   a property access on a translatable operand, or a call to a function in
   `sqlTranslatableFunctionWhitelist()` on translatable operands

@@ -30,4 +30,21 @@ function <<test.Test>> meta::pure::executionPlan::tests::postprocess::testPostPr
 {
   let plan = meta::pure::executionPlan::executionPlan(|1+1, []);
   assert(!$plan.processingTemplateFunctions->contains('POST_PROCESSED'));
+  assertFalse($plan.authDependent);
+  assert($plan.kerberos->isEmpty());
+}
+
+// The plan-level aggregates are derived from the node tree before the hook runs, so a hook that
+// rewrites the tree would otherwise leave them describing nodes that are no longer in the plan.
+function <<test.Test>> meta::pure::executionPlan::tests::postprocess::testPostProcessRewriteRefreshesPlanAggregates():Boolean[1]
+{
+  let ext = ^meta::pure::extension::Extension(
+              type = 'testPostProcessAggregates',
+              postProcessExecutionPlan = {plan:meta::pure::executionPlan::ExecutionPlan[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1] |
+                 let root = $plan.rootExecutionNode;
+                 ^$plan(rootExecutionNode = ^$root(authDependent = true, kerberos = 'postProcessed'));
+              });
+  let plan = meta::pure::executionPlan::executionPlan(|1+1, $ext);
+  assert($plan.authDependent, | 'authDependent must be recomputed from the post-processed node tree');
+  assertEquals('postProcessed', $plan.kerberos);
 }

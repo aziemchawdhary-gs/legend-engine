@@ -51,7 +51,7 @@ function meta::relational::m2mSql::collapseNode(node:ExecutionNode[1], defaultCo
 
 function <<access.private>> meta::relational::m2mSql::collapseSerializeNode(node:PureExpressionPlatformExecutionNode[1], defaultConnection:meta::external::store::relational::runtime::DatabaseConnection[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1]):ExecutionNode[1]
 {
-  let reason = $node->m2mSqlCollapseRejection();
+  let reason = $node->m2mSqlCollapseRejection($extensions);
   if($reason->isNotEmpty(),
      | print(if($debug.debug, | 'M2M SQL fallback: ' + $reason->toOne() + '\n', | ''));
        $node;,
@@ -78,7 +78,7 @@ function <<access.private>> meta::relational::m2mSql::collapseSerializeNode(node
 
 // Returns why this node cannot be collapsed, or [] when it can. Written as a cascade rather than a
 // list of conditions so that each guard only runs once the shape it assumes has been established.
-function <<access.private>> meta::relational::m2mSql::m2mSqlCollapseRejection(node:PureExpressionPlatformExecutionNode[1]):String[0..1]
+function <<access.private>> meta::relational::m2mSql::m2mSqlCollapseRejection(node:PureExpressionPlatformExecutionNode[1], extensions:meta::pure::extension::Extension[*]):String[0..1]
 {
   if(!$node.expression->instanceOf(SimpleFunctionExpression) || !$node.expression->cast(@SimpleFunctionExpression).func->in(meta::relational::m2mSql::m2mSqlSerializeFunctions()),
      | 'not a graph fetch serialize node',
@@ -86,7 +86,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlCollapseRejection(no
           | 'serialize expression carries more than the curtailed graph fetch collection',
           | if($node.executionNodes->size() != 1 || !$node.executionNodes->at(0)->instanceOf(StoreMappingGlobalGraphFetchExecutionNode),
                | 'serialize node does not wrap exactly one store-mapping graph fetch node',
-               | $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode)->m2mSqlGlobalNodeRejection($node->m2mSqlSerializeTree())
+               | $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode)->m2mSqlGlobalNodeRejection($node->m2mSqlSerializeTree(), $extensions)
               )
          )
     );
@@ -107,7 +107,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeExpressionI
     && $parameters->at(0)->cast(@InstanceValue).values->isEmpty();
 }
 
-function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(globalNode:StoreMappingGlobalGraphFetchExecutionNode[1], serializeTree:GraphFetchTree[0..1]):String[0..1]
+function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(globalNode:StoreMappingGlobalGraphFetchExecutionNode[1], serializeTree:GraphFetchTree[0..1], extensions:meta::pure::extension::Extension[*]):String[0..1]
 {
   if($serializeTree->isEmpty(),
      | 'serialize target tree is not a plain graph fetch tree',
@@ -123,7 +123,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
                          | 'serialize tree differs from the graph fetch tree',
                          | if(meta::relational::m2mSql::treeClasses($routedTree->cast(@GraphFetchTree))->exists(c | $c.constraints->isNotEmpty()),
                               | 'constraints on the target classes are not yet translated',
-                              | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree)
+                              | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree, $extensions)
                              )
                         )
                    );
@@ -133,7 +133,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
     );
 }
 
-function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(localNode:LocalGraphFetchExecutionNode[1], routedTree:RoutedRootGraphFetchTree<Any>[1]):String[0..1]
+function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(localNode:LocalGraphFetchExecutionNode[1], routedTree:RoutedRootGraphFetchTree<Any>[1], extensions:meta::pure::extension::Extension[*]):String[0..1]
 {
   if(!$localNode->instanceOf(InMemoryRootGraphFetchExecutionNode) || $localNode->instanceOf(InMemoryCrossStoreGraphFetchExecutionNode),
      | 'local graph fetch node is not a plain in-memory root node',
@@ -152,7 +152,10 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
                          {|
                            let setImpl = $routedTree.sets->toOne()->cast(@meta::external::store::model::PureInstanceSetImplementation);
                            let verdict = meta::relational::m2mSql::canPlanM2MSql($setImpl, $routedTree->cast(@RootGraphFetchTree<Any>), $setImpl.parent);
-                           if($verdict.translatable, | [], | $verdict.reason);
+                           if(!$verdict.translatable,
+                              | $verdict.reason,
+                              | $setImpl->m2mSqlSourceConstraintRejection($routedTree->cast(@RootGraphFetchTree<Any>), $extensions)
+                             );
                          }
                         )
                    );
@@ -204,6 +207,23 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlTreeClass(tree:Graph
     p:PropertyGraphFetchTree[1]   | $p.property.genericType.rawType,
     g:GraphFetchTree[1]           | []
   ]);
+}
+
+// The mirror image of the target-class constraint guard above. On the Java path the source document is
+// deserialized into real instances of the source classes before any transform runs, and the store
+// stream reader enforces those classes' constraints while it does so. The SQL path never materializes
+// a source object, so a source-class constraint would simply stop being checked — a silent behaviour
+// change rather than a fallback. The source classes are exactly the classes of the calculated source
+// tree, which is the same tree buildM2MSqlQuery synthesizes the source store from, so it is computed
+// here the same way. Deliberately run only after canPlanM2MSql has accepted the shape: on anything it
+// rejects, calculateSourceTree is never reached on the collapse path either.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSourceConstraintRejection(setImpl:meta::external::store::model::PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], extensions:meta::pure::extension::Extension[*]):String[0..1]
+{
+  let sourceTree = $targetTree->meta::pure::graphFetch::calculateSourceTree($setImpl.parent, $extensions);
+  if($sourceTree->cast(@GraphFetchTree)->treeClasses()->exists(c | $c.constraints->isNotEmpty()),
+     | 'constraints on the source classes are not yet translated',
+     | []
+    );
 }
 
 function <<access.private>> meta::relational::m2mSql::treeClasses(tree:GraphFetchTree[1]):Class<Any>[*]

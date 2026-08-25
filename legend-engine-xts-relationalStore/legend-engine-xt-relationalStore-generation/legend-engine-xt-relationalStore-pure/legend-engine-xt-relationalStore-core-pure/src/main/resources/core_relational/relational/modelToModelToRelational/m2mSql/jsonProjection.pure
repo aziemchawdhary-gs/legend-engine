@@ -117,6 +117,14 @@ function meta::relational::m2mSql::m2mSqlDocumentColumnName():String[1]
   'doc';
 }
 
+// Column names in this projection are derived from target property names, so they can collide with
+// SQL reserved words. Every reference to one is emitted quoted; the SQL generator's identifier
+// processor recognises the leading quote and keeps it.
+function <<access.private>> meta::relational::m2mSql::m2mSqlQuoteIdentifier(name:String[1]):String[1]
+{
+  '"' + $name + '"';
+}
+
 // The JSON key a property tree contributes, and equally the segment of the flattened column name the
 // inner query uses for it. Shared so the two walks below cannot drift apart.
 function <<access.private>> meta::relational::m2mSql::pathSegment(propertyTree:PropertyGraphFetchTree[1]):String[1]
@@ -144,7 +152,7 @@ function <<access.private>> meta::relational::m2mSql::withPresenceColumns(connec
        let aliases  = $presences->map(p |
                         ^Alias
                         (
-                          name               = $p.columnName,
+                          name               = m2mSqlQuoteIdentifier($p.columnName),
                           relationalElement  = ^DynaFunction
                                                (
                                                  name       = 'isNotNull',
@@ -354,11 +362,15 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLeafReference(column
 
 // A reference to one column of the wrapping sub-query. The database/schema/table around it are
 // throwaway scaffolding: only the alias and column names survive into the generated SQL.
+//
+// The name is pre-quoted: the inner query already emits its aliases quoted (they come straight from
+// target property names, so one of them being a reserved word is a matter of time), and the SQL
+// generator's identifier processor treats an already-quoted identifier as one to keep quoted.
 function <<access.private>> meta::relational::m2mSql::m2mSqlColumnReference(columnName:String[1]):RelationalOperationElement[1]
 {
   let database = ^Database(name = 'm2mSqlWrapperDb', package = meta::relational::m2mSql);
   let schema   = ^Schema(name = 'default', database = $database);
   let table    = ^Table(name = m2mSqlSubQueryAlias(), schema = $schema);
-  let column   = ^Column(name = $columnName, type = ^meta::relational::metamodel::datatype::Varchar(size = 8192));
+  let column   = ^Column(name = m2mSqlQuoteIdentifier($columnName), type = ^meta::relational::metamodel::datatype::Varchar(size = 8192));
   ^TableAliasColumn(alias = ^TableAlias(database = $database, name = m2mSqlSubQueryAlias(), relationalElement = $table), column = $column)->cast(@RelationalOperationElement);
 }
