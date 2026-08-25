@@ -67,6 +67,12 @@ Class meta::pure::extension::Extension
   // --------------------------------------------------------------------------------------------------------------------------------------
 
   // Plan post-processing: applied to the fully assembled ExecutionPlan before platform binding ----
+  // Contract for a hook that *rewrites* the node tree rather than only annotating it: the plan-level
+  // aggregates derived from the tree are computed before the hook runs, so a rewrite can leave them
+  // describing nodes that no longer exist. `authDependent` and `kerberos` are recomputed from the
+  // post-processed tree by meta::pure::executionPlan::executionPlan; `processingTemplateFunctions`
+  // is not, so a hook that removes the last node needing a support function must clear it itself if
+  // the staleness matters. Any other field a rewrite invalidates is the hook's own responsibility.
   postProcessExecutionPlan : Function<{meta::pure::executionPlan::ExecutionPlan[1], meta::pure::extension::Extension[*], DebugContext[1] -> meta::pure::executionPlan::ExecutionPlan[1]}>[0..1];
   //-----------------------------------------------------------------------------------------------
 

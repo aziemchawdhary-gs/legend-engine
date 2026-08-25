@@ -101,7 +101,7 @@ function meta::core::runtime::connectionByElementFailSafe(runtime:Runtime[1], st
 }
 
 // True if the runtime has at least one connection and every connection is an in-memory Model-store
-// connection (Model/Json/Xml) or a ModelChainConnection (chained model-to-model, i.e. M2M2M).
+// connection (Model/Json/Sql/Xml) or a ModelChainConnection (chained model-to-model, i.e. M2M2M).
 function meta::pure::router::runtime::isPureM2MRuntime(runtime:meta::core::runtime::Runtime[1]):Boolean[1]
 {
    !$runtime.connectionStores.connection->isEmpty()

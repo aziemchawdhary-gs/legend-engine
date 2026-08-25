@@ -216,7 +216,16 @@ function meta::pure::executionPlan::executionPlan(clusters:ClusteredValueSpecifi
       kerberos =  $updatedNode->allNodes($extensions).kerberos->first(),
       processingTemplateFunctions = $updatedNode->allNodes($extensions).supportFunctions->removeDuplicates()
    );
-   $extensions.postProcessExecutionPlan->fold({pp, p | $pp->eval($p, $extensions, $debugContext)}, $assembledPlan);
+   let processedPlan = $extensions.postProcessExecutionPlan->fold({pp, p | $pp->eval($p, $extensions, $debugContext)}, $assembledPlan);
+
+   // A post-processor may rewrite the node tree, which invalidates aggregates derived from it above.
+   // processingTemplateFunctions is deliberately left as computed pre-fold: a stale support function
+   // is inert, whereas a stale authDependent/kerberos changes how the plan is executed.
+   ^$processedPlan
+   (
+      authDependent = false || $processedPlan.rootExecutionNode->allNodes($extensions).authDependent->contains(true),
+      kerberos = $processedPlan.rootExecutionNode->allNodes($extensions).kerberos->first()
+   );
 }
 
 function meta::pure::executionPlan::generatePlatformCode(plan:ExecutionPlan[1], platformId:String[1], config:meta::pure::executionPlan::platformBinding::PlatformBindingConfig[1], extensions:meta::pure::extension::Extension[*]):ExecutionPlan[1]
