@@ -62,8 +62,12 @@ import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphF
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.store.inMemory.InMemoryRootGraphFetchExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.store.inMemory.StoreStreamReadingExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.result.ClassResultType;
+import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
 import org.finos.legend.engine.shared.core.collectionsExtensions.DoubleStrategyHashMap;
 import org.finos.legend.engine.shared.core.identity.Identity;
+import org.finos.legend.engine.shared.core.operational.logs.LogInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -84,6 +88,8 @@ import java.util.stream.StreamSupport;
 
 public class InMemoryExecutionNodeExecutor implements ExecutionNodeVisitor<Result>
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryExecutionNodeExecutor.class);
+
     ExecutionState executionState;
     Identity identity;
 
@@ -109,10 +115,28 @@ public class InMemoryExecutionNodeExecutor implements ExecutionNodeVisitor<Resul
     @Override
     public Result visit(StoreStreamReadingExecutionNode node)
     {
+        logM2MSqlFallbackIfApplicable(node, this.identity);
         IStoreStreamReadingExecutionNodeSpecifics nodeSpecifics = ExecutionNodeJavaPlatformHelper.getNodeSpecificsInstance(node, this.executionState, this.identity);
         StoreStreamReadingExecutionNodeContext context = (StoreStreamReadingExecutionNodeContext) StoreStreamReadingExecutionNodeContext.factory(node).create(this.executionState, null);
         StoreStreamReadingObjectsIterator<?> storeObjectsIterator = StoreStreamReadingObjectsIterator.newObjectsIterator(nodeSpecifics.streamReader(context), node.enableConstraints, node.checked);
         return new StoreStreamReadingResult<>(storeObjectsIterator);
+    }
+
+    /**
+     * A {@link StoreStreamReadingExecutionNode} whose connection is a {@link SqlModelConnection} is, by
+     * definition, a M2M SQL query that the plan-rewrite collapse declined to route to the SQL execution path
+     * and that is instead running on this Java in-memory fallback path. Log it as a structured event so
+     * fallback rates are observable (see M2M SQL execution phase-2 spec, telemetry-driven coverage growth).
+     */
+    public static void logM2MSqlFallbackIfApplicable(StoreStreamReadingExecutionNode node, Identity identity)
+    {
+        if (node.connection instanceof SqlModelConnection)
+        {
+            SqlModelConnection connection = (SqlModelConnection) node.connection;
+            String url = connection.url;
+            String scheme = (url != null && url.indexOf(':') > 0) ? url.substring(0, url.indexOf(':')) : "none";
+            LOGGER.info("{}", new LogInfo(M2MSqlFallbackLoggingEventType.M2M_SQL_JAVA_FALLBACK_EXECUTED, identity.getName(), connection._class + " via " + scheme));
+        }
     }
 
     @Override
