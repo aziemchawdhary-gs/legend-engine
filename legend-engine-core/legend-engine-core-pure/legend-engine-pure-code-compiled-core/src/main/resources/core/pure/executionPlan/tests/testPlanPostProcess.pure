@@ -48,3 +48,16 @@ function <<test.Test>> meta::pure::executionPlan::tests::postprocess::testPostPr
   assert($plan.authDependent, | 'authDependent must be recomputed from the post-processed node tree');
   assertEquals('postProcessed', $plan.kerberos);
 }
+
+// The no-hook fast path must be behaviourally identical to running an inert hook through the fold:
+// same printed plan, so the guard is provably a pure performance shortcut and not a behaviour change.
+function <<test.Test>> meta::pure::executionPlan::tests::postprocess::testPostProcessNoHookFastPathMatchesIdentityHook():Boolean[1]
+{
+  let identityExt = ^meta::pure::extension::Extension(
+              type = 'testPostProcessIdentity',
+              postProcessExecutionPlan = {plan:meta::pure::executionPlan::ExecutionPlan[1], extensions:meta::pure::extension::Extension[*], debug:DebugContext[1] | $plan}
+            );
+  let hooklessPlan = meta::pure::executionPlan::executionPlan(|1+1, []);
+  let identityHookedPlan = meta::pure::executionPlan::executionPlan(|1+1, $identityExt);
+  assertEquals($identityHookedPlan->meta::pure::executionPlan::toString::planToString([]), $hooklessPlan->meta::pure::executionPlan::toString::planToString([]));
+}
