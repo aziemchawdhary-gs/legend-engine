@@ -151,6 +151,19 @@ function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::ex
   ];
 }
 
+// Column names in the projection are derived from target property aliases, so a `"` in an alias must
+// be doubled wherever m2mSqlQuoteIdentifier quotes it -- otherwise the alias's own quote terminates
+// the SQL identifier early and garbles the generated query.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testAliasWithQuoteIsEscaped():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Person);
+  let q       = buildM2MSqlQuery($setImpl, #{Person {'na"me': fullName}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assert($q.sqlQuery->contains('"m2m_sub"."na""me"'), | 'expected the outer document reference to double the embedded quote, got: ' + $q.sqlQuery);
+  assertEquals('select json_object(\'na"me\', "m2m_sub"."na""me") as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "na""me" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testSimpleM2MSqlQuery():Boolean[1]
 {
   let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping;

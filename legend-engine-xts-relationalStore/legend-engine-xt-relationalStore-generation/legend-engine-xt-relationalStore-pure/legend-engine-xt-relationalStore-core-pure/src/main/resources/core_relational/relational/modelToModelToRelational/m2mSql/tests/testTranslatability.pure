@@ -237,6 +237,52 @@ Class meta::relational::m2mSql::tests::enumAutoMapped::S_Item
   other: String[1];
 }
 
+// address is left entirely unmapped below (no PurePropertyMapping at all), matching name/type with
+// the source so the M2M store contract auto-maps it. Its nested class's own mapping has an
+// untranslatable transform on city, which the no-property-mapping branch of
+// untranslatablePropertyReasons must catch by recursing, rather than accepting the property outright
+// and letting flattenTargetTree/nestedSetImplementation hit it downstream.
+Class meta::relational::m2mSql::tests::autoMappedComplex::Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplex::Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::autoMappedComplex::Address[0..1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplex::S_Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplex::S_Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::autoMappedComplex::S_Address[0..1];
+}
+
+// The differential half of the pin above: same shape, but the nested class's mapping is fully
+// translatable, so the auto-mapped complex property must now be accepted (recursed into), not
+// rejected outright the way it was before this property could resolve at all.
+Class meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Address[0..1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplexTranslatable::S_Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::autoMappedComplexTranslatable::S_Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::autoMappedComplexTranslatable::S_Address[0..1];
+}
+
 ###Mapping
 Mapping meta::relational::m2mSql::tests::simpleRename::TestMapping
 (
@@ -409,6 +455,34 @@ Mapping meta::relational::m2mSql::tests::enumAutoMapped::TestMapping
   {
     ~src meta::relational::m2mSql::tests::enumAutoMapped::S_Item
     other: $src.other
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::autoMappedComplex::TestMapping
+(
+  *meta::relational::m2mSql::tests::autoMappedComplex::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::autoMappedComplex::S_Person
+    name: $src.name
+  }
+  *meta::relational::m2mSql::tests::autoMappedComplex::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::autoMappedComplex::S_Address
+    city: $src.city->trim()
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::autoMappedComplexTranslatable::TestMapping
+(
+  *meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::autoMappedComplexTranslatable::S_Person
+    name: $src.name
+  }
+  *meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::autoMappedComplexTranslatable::S_Address
+    city: $src.city
   }
 )
 
@@ -619,4 +693,33 @@ function <<test.Test>> meta::relational::m2mSql::tests::testBareSourceComplexPro
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable, | 'expected a complex property mapped to the bare source object to be rejected');
   assert($result.reason->toOne()->contains('source property access'), | 'expected a source-property-access reason, got: ' + $result.reason->orElse(''));
+}
+
+// An auto-mapped complex property (no PurePropertyMapping at all) with an untranslatable child must
+// still fall back with a reason, not slip past the gate and crash downstream in
+// flattenTargetTree/nestedSetImplementation.
+function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPropertyRecursesIntoChild():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::autoMappedComplex::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMappedComplex::Person)->cast(@PureInstanceSetImplementation)->toOne();
+
+  // Pin the precondition: address has no PurePropertyMapping in TestMapping above.
+  assert($setImpl->propertyMappingsByPropertyName('address')->filter(pm | $pm->instanceOf(PurePropertyMapping))->isEmpty(), | 'expected address to have no PurePropertyMapping in TestMapping');
+
+  let tree   = #{meta::relational::m2mSql::tests::autoMappedComplex::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable, | 'expected an auto-mapped complex property with an untranslatable child to be rejected');
+  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('trim'), | 'expected the reason to name the untranslatable child transform, got: ' + $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPropertyIsTranslatableWhenChildIs():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::autoMappedComplexTranslatable::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person)->cast(@PureInstanceSetImplementation)->toOne();
+
+  assert($setImpl->propertyMappingsByPropertyName('address')->filter(pm | $pm->instanceOf(PurePropertyMapping))->isEmpty(), | 'expected address to have no PurePropertyMapping in TestMapping');
+
+  let tree   = #{meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected an auto-mapped complex property whose child is translatable to be accepted, got reason: ' + $result.reason->orElse(''));
 }

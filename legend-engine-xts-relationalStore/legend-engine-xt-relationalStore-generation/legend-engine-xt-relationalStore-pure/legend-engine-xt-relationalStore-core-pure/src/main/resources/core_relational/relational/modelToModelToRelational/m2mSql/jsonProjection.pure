@@ -122,7 +122,7 @@ function meta::relational::m2mSql::m2mSqlDocumentColumnName():String[1]
 // processor recognises the leading quote and keeps it.
 function <<access.private>> meta::relational::m2mSql::m2mSqlQuoteIdentifier(name:String[1]):String[1]
 {
-  '"' + $name + '"';
+  '"' + $name->replace('"', '""') + '"';
 }
 
 // The JSON key a property tree contributes, and equally the segment of the flattened column name the

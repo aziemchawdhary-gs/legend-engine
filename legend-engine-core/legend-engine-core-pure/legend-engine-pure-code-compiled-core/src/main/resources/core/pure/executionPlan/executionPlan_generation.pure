@@ -216,16 +216,24 @@ function meta::pure::executionPlan::executionPlan(clusters:ClusteredValueSpecifi
       kerberos =  $updatedNode->allNodes($extensions).kerberos->first(),
       processingTemplateFunctions = $updatedNode->allNodes($extensions).supportFunctions->removeDuplicates()
    );
-   let processedPlan = $extensions.postProcessExecutionPlan->fold({pp, p | $pp->eval($p, $extensions, $debugContext)}, $assembledPlan);
+   // No extension registers a hook on the vast majority of deployments, so the fold below (and the
+   // recompute after it) would be pure overhead on every plan generated: skip both when there is
+   // nothing to fold.
+   if($extensions.postProcessExecutionPlan->isEmpty(),
+      | $assembledPlan,
+      {|
+        let processedPlan = $extensions.postProcessExecutionPlan->fold({pp, p | $pp->eval($p, $extensions, $debugContext)}, $assembledPlan);
 
-   // A post-processor may rewrite the node tree, which invalidates aggregates derived from it above.
-   // processingTemplateFunctions is deliberately left as computed pre-fold: a stale support function
-   // is inert, whereas a stale authDependent/kerberos changes how the plan is executed.
-   ^$processedPlan
-   (
-      authDependent = false || $processedPlan.rootExecutionNode->allNodes($extensions).authDependent->contains(true),
-      kerberos = $processedPlan.rootExecutionNode->allNodes($extensions).kerberos->first()
-   );
+        // A post-processor may rewrite the node tree, which invalidates aggregates derived from it above.
+        // processingTemplateFunctions is deliberately left as computed pre-fold: a stale support function
+        // is inert, whereas a stale authDependent/kerberos changes how the plan is executed.
+        ^$processedPlan
+        (
+           authDependent = false || $processedPlan.rootExecutionNode->allNodes($extensions).authDependent->contains(true),
+           kerberos = $processedPlan.rootExecutionNode->allNodes($extensions).kerberos->first()
+        );
+      }
+     );
 }
 
 function meta::pure::executionPlan::generatePlatformCode(plan:ExecutionPlan[1], platformId:String[1], config:meta::pure::executionPlan::platformBinding::PlatformBindingConfig[1], extensions:meta::pure::extension::Extension[*]):ExecutionPlan[1]

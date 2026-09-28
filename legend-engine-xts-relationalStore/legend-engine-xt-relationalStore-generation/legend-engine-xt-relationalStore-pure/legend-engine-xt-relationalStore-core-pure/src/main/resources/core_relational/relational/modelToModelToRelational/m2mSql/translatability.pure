@@ -94,14 +94,39 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                        ->filter(pm | $pm->instanceOf(PurePropertyMapping))
                                        ->cast(@PurePropertyMapping);
        if($propertyMappings->isEmpty(),
-          | if(!$propertyTree.property->isPropertyAutoMapped($setImpl),
-               | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
-               // Same hole as in explainUntranslatableExpression, on the branch that has no transform
-               // lambda to walk: an auto-mapped enumeration property would reach the synthetic source
-               // store's `fail` rather than falling back.
-               | if($propertyTree.property.genericType.rawType->isNotEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(Enumeration),
-                    | [('enumeration-typed source property not yet translated: ' + $propertyTree.property.name->toOne())],
-                    | []
+          // A complex property with no PurePropertyMapping at all reaches jsonProjection.pure's own
+          // by-name auto-mapping (autoMappedSourceExpression / nestedSetImplementation's $pms->isEmpty()
+          // branch), which the M2M store contract's isPropertyAutoMapped does not recognize -- its
+          // complex-property case means "implicitly resolved *despite* an explicit mapping", not "no
+          // mapping at all". So a genuinely unmapped complex property has to be checked against the same
+          // resolution jsonProjection.pure performs, not against isPropertyAutoMapped, or it either gets
+          // rejected outright (dead functionality) or -- the bug this guards against -- accepted without
+          // ever looking at its subtree, which then asserts downstream instead of falling back.
+          | if($propertyTree.subTrees->isNotEmpty(),
+               {|
+                 let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
+                 // An auto-mapped access is `$src.<name>`, itself a plain navigation, so only the
+                 // resolution and recursion below are new.
+                 if($srcClass->propertyByName($propertyTree.property.name->toOne())->isEmpty(),
+                    | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
+                    {|
+                      let nestedSetImpl = $mapping->rootClassMappingByClass($propertyTree.property.genericType.rawType->toOne()->cast(@Class<Any>));
+                      if($nestedSetImpl->isEmpty() || !$nestedSetImpl->toOne()->instanceOf(PureInstanceSetImplementation),
+                         | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
+                         | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne()->cast(@PureInstanceSetImplementation), $propertyTree->cast(@GraphFetchTree), $mapping)
+                        );
+                    }
+                   );
+               },
+               | if(!$propertyTree.property->isPropertyAutoMapped($setImpl),
+                    | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
+                    // Same hole as in explainUntranslatableExpression, on the branch that has no transform
+                    // lambda to walk: an auto-mapped enumeration property would reach the synthetic source
+                    // store's `fail` rather than falling back.
+                    | if($propertyTree.property.genericType.rawType->isNotEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(Enumeration),
+                         | [('enumeration-typed source property not yet translated: ' + $propertyTree.property.name->toOne())],
+                         | []
+                        )
                    )
               ),
           | if($propertyMappings->exists(pm | $pm.transformer->isNotEmpty()),

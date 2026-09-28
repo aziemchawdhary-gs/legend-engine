@@ -108,6 +108,20 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::
   name : String[1];
 }
 
+// The constraint is declared on the superclass only; the source class itself carries none. The
+// target-class constraint guard already reads $c.constraints directly, so treeClasses-based checks
+// have to walk generalisations too, or an inherited constraint silently loses its check.
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_ConstrainedSuperclass
+[
+  nonEmptyName: $this.name->length() > 0
+]
+{
+  name : String[1];
+}
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_InheritedConstrainedSource extends meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_ConstrainedSuperclass
+{
+}
+
 ###Mapping
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::collapseMapping
 (
@@ -165,6 +179,15 @@ Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::plain
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::PlainTarget: Pure
   {
     ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_PlainSource
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::inheritedConstrainedSourceMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::PlainTarget: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_InheritedConstrainedSource
     name: $src.name
   }
 )
@@ -319,4 +342,36 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
              );
   assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a non-navigation complex transform must not be collapsed');
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
+}
+
+// The source class's constraint is declared on its superclass, not on the source class itself: a
+// treeClasses-based guard that only reads $c.constraints (rather than walking generalisations too)
+// would miss it entirely and collapse a plan whose Java path enforces the constraint.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testInheritedConstrainedSourceStaysOnJavaPath():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |PlainTarget.all()->graphFetch(#{PlainTarget {name}}#)->serialize(#{PlainTarget {name}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::inheritedConstrainedSourceMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_InheritedConstrainedSource),
+               $extensions
+             );
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a source class constrained only via its superclass must not be collapsed');
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
+}
+
+// With enableConstraints disabled at plan-generation time the Java path checks nothing, so a
+// constrained target class has nothing left to lose by collapsing to SQL.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testConstrainedTargetCollapsesWhenConstraintsDisabled():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Constrained.all()->graphFetch(#{Constrained {name}}#)->serialize(#{Constrained {name}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::constrainedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Constrained),
+               ^meta::pure::runtime::ExecutionContext(enableConstraints = false),
+               $extensions
+             );
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a constrained target class must collapse once constraint checking is disabled, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'InMemory nodes must be gone');
 }
