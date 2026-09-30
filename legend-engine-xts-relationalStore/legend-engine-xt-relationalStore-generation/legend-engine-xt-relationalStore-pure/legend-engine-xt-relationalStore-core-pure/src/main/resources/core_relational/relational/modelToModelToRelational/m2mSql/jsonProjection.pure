@@ -74,7 +74,7 @@ Class meta::relational::m2mSql::M2MSqlProjection
 function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], connection:DatabaseConnection[1], extensions:Extension[*], debug:DebugContext[1]):M2MSqlQuery[1]
 {
   let srcClass   = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-  let srcVar     = ^VariableExpression(name = 'src', genericType = ^GenericType(rawType = $srcClass), multiplicity = PureOne);
+  let srcVar     = m2mSqlSourceVariable($srcClass);
   let projection = flattenTargetTree($setImpl, $targetTree->cast(@GraphFetchTree), $srcVar, [], $setImpl.parent, $srcClass);
   let columns    = $projection.columns;
   assert($columns->isNotEmpty(), | 'M2M SQL projection needs at least one primitive leaf in the target tree');
@@ -86,7 +86,7 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                                                 rawType       = LambdaFunction,
                                                 typeArguments = ^GenericType(rawType = ^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = TabularDataSet)))
                                               ),
-                      expressionSequence    = buildProjectExpression($srcClass, $columns)
+                      expressionSequence    = buildProjectExpression($srcClass, $columns, $setImpl->mappingFilterOver($srcVar))
                     );
 
   let source     = synthesizeSourceStore($srcClass, $targetTree->calculateSourceTree($setImpl.parent, $extensions));
@@ -251,6 +251,19 @@ function <<access.private>> meta::relational::m2mSql::nestedSetImplementation(pm
   $resolved->toOne()->cast(@PureInstanceSetImplementation);
 }
 
+// The root source variable every column and filter lambda of the inner query is expressed over.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSourceVariable(srcClass:Class<Any>[1]):VariableExpression[1]
+{
+  ^VariableExpression(name = 'src', genericType = ^GenericType(rawType = $srcClass), multiplicity = PureOne);
+}
+
+// The set implementation's ~filter, if it has one, re-expressed over `srcVar`: the filter lambda's own
+// parameter is not guaranteed to be named `src`, which is the only variable the whitelist admits.
+function <<access.private>> meta::relational::m2mSql::mappingFilterOver(setImpl:PureInstanceSetImplementation[1], srcVar:ValueSpecification[1]):ValueSpecification[0..1]
+{
+  if($setImpl.filter->isEmpty(), | [], | substituteSourceVariable($setImpl.filter->toOne(), $srcVar));
+}
+
 // Re-expresses a property mapping's transform over the enclosing source expression by replacing its
 // own $src parameter. At the root this is the identity (the replacement *is* the root variable);
 // below the root it is what composes `target.address.street` into a single navigation of the source
@@ -274,6 +287,16 @@ function <<access.private>> meta::relational::m2mSql::replaceVariable(vs:ValueSp
 
 function <<access.private>> meta::relational::m2mSql::buildColumnLambda(srcClass:Class<Any>[1], expr:ValueSpecification[1]):LambdaFunction<Any>[1]
 {
+  buildSourceLambda($srcClass, $expr, $expr.genericType, $expr.multiplicity);
+}
+
+function <<access.private>> meta::relational::m2mSql::buildFilterLambda(srcClass:Class<Any>[1], expr:ValueSpecification[1]):LambdaFunction<Any>[1]
+{
+  buildSourceLambda($srcClass, $expr, ^GenericType(rawType = Boolean), PureOne);
+}
+
+function <<access.private>> meta::relational::m2mSql::buildSourceLambda(srcClass:Class<Any>[1], expr:ValueSpecification[1], returnType:GenericType[1], returnMultiplicity:Multiplicity[1]):LambdaFunction<Any>[1]
+{
   ^LambdaFunction<{Nil[1]->Any[*]}>
   (
     classifierGenericType = ^GenericType
@@ -283,9 +306,9 @@ function <<access.private>> meta::relational::m2mSql::buildColumnLambda(srcClass
                                               (
                                                 rawType = ^FunctionType
                                                           (
-                                                            parameters         = ^VariableExpression(name = 'src', genericType = ^GenericType(rawType = $srcClass), multiplicity = PureOne),
-                                                            returnMultiplicity = $expr.multiplicity,
-                                                            returnType         = $expr.genericType
+                                                            parameters         = m2mSqlSourceVariable($srcClass),
+                                                            returnMultiplicity = $returnMultiplicity,
+                                                            returnType         = $returnType
                                                           )
                                               )
                             ),
@@ -293,9 +316,10 @@ function <<access.private>> meta::relational::m2mSql::buildColumnLambda(srcClass
   );
 }
 
-// (b) `srcClass.all()->project([<transforms>], [<column names>])`, built by hand because the
-// transforms come from the mapping rather than from parsed source.
-function <<access.private>> meta::relational::m2mSql::buildProjectExpression(srcClass:Class<Any>[1], columns:M2MSqlColumn[*]):FunctionExpression[1]
+// (b) `srcClass.all()->filter(<filter>)...->project([<transforms>], [<column names>])`, built by hand
+// because the transforms come from the mapping rather than from parsed source. `filters` are boolean
+// expressions over the root $src variable, ANDed by applying one `filter` per entry.
+function <<access.private>> meta::relational::m2mSql::buildProjectExpression(srcClass:Class<Any>[1], columns:M2MSqlColumn[*], filters:ValueSpecification[*]):FunctionExpression[1]
 {
   let getAll = ^SimpleFunctionExpression
                (
@@ -307,6 +331,21 @@ function <<access.private>> meta::relational::m2mSql::buildProjectExpression(src
                  parametersValues = ^InstanceValue(values = $srcClass, genericType = ^GenericType(rawType = Class, typeArguments = ^GenericType(rawType = $srcClass)), multiplicity = PureOne)
                )->evaluateAndDeactivate();
 
+  // pureToSQLQuery's processFilter reads the lambda's FunctionType off the InstanceValue's generic
+  // type, so it has to be the lambda's real classifier type and not the loose one `project` accepts.
+  let filtered = $filters->fold({f, acc |
+    let filterLambda = buildFilterLambda($srcClass, $f);
+    ^SimpleFunctionExpression
+    (
+      func             = filter_T_MANY__Function_1__T_MANY_,
+      functionName     = 'filter',
+      importGroup      = system::imports::coreImport,
+      genericType      = ^GenericType(rawType = $srcClass),
+      multiplicity     = ZeroMany,
+      parametersValues = [$acc, ^InstanceValue(genericType = $filterLambda.classifierGenericType->toOne(), multiplicity = PureOne, values = $filterLambda)]
+    )->evaluateAndDeactivate()->cast(@ValueSpecification);
+  },$getAll->cast(@ValueSpecification));
+
   ^SimpleFunctionExpression
   (
     func             = project_K_MANY__Function_MANY__String_MANY__TabularDataSet_1_,
@@ -315,7 +354,7 @@ function <<access.private>> meta::relational::m2mSql::buildProjectExpression(src
     genericType      = ^GenericType(rawType = TabularDataSet),
     multiplicity     = PureOne,
     parametersValues = [
-                        $getAll,
+                        $filtered,
                         ^InstanceValue(genericType = ^GenericType(rawType = FunctionDefinition, typeArguments = ^GenericType(rawType = Any)), multiplicity = ZeroMany, values = $columns.transform),
                         ^InstanceValue(genericType = ^GenericType(rawType = String), multiplicity = ZeroMany, values = $columns.columnName)
                        ]

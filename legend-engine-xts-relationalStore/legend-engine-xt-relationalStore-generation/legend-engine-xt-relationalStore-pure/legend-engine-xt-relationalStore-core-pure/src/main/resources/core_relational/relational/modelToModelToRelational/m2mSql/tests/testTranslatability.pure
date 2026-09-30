@@ -37,6 +37,35 @@ Class meta::relational::m2mSql::tests::mappingFilter::S_Person
   active: Boolean[1];
 }
 
+Class meta::relational::m2mSql::tests::comparisonFilter::Person
+{
+  name: String[1];
+}
+Class meta::relational::m2mSql::tests::comparisonFilter::S_Person
+{
+  name: String[1];
+  age: Integer[1];
+}
+
+Class meta::relational::m2mSql::tests::nestedFilter::Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::nestedFilter::Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::nestedFilter::Address[0..1];
+}
+Class meta::relational::m2mSql::tests::nestedFilter::S_Address
+{
+  city: String[1];
+}
+Class meta::relational::m2mSql::tests::nestedFilter::S_Person
+{
+  name: String[1];
+  address: meta::relational::m2mSql::tests::nestedFilter::S_Address[0..1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -303,6 +332,42 @@ Mapping meta::relational::m2mSql::tests::mappingFilter::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::comparisonFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::comparisonFilter::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::comparisonFilter::S_Person
+    ~filter (($src.age > 0) || ($src.age < 0)) && ($src.age <= 200) && ($src.age >= 18) && !($src.name == 'Zed')
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::untranslatableFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::comparisonFilter::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::comparisonFilter::S_Person
+    ~filter $src.name->trim() == 'Zed'
+    name: $src.name
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::nestedFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::nestedFilter::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::nestedFilter::S_Person
+    name: $src.name,
+    address: $src.address
+  }
+  *meta::relational::m2mSql::tests::nestedFilter::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::nestedFilter::S_Address
+    ~filter $src.city == 'NYC'
+    city: $src.city
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::enumTransform::TestMapping
 (
   *meta::relational::m2mSql::tests::enumTransform::Item: Pure
@@ -502,15 +567,48 @@ function <<test.Test>> meta::relational::m2mSql::tests::testSimpleRenameIsTransl
   assert($result.translatable, | 'expected simple rename mapping to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testMappingFilterIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testRootMappingFilterIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::mappingFilter::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::mappingFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::mappingFilter::Person{name}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected a boolean root mapping filter to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+// Uses every comparison/boolean function on the whitelist, so a grammar operator resolving to an
+// overload other than the whitelisted one shows up here rather than as a silent fallback.
+function <<test.Test>> meta::relational::m2mSql::tests::testComparisonMappingFilterIsTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::comparisonFilter::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::comparisonFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::comparisonFilter::Person{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assert($result.translatable, | 'expected a comparison/boolean root mapping filter to be translatable, got reason: ' + $result.reason->orElse(''));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testUntranslatableMappingFilterIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::untranslatableFilter::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::comparisonFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::comparisonFilter::Person{name}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable);
-  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('filter'), | 'expected reason to mention filter, got: ' + $result.reason->orElse('<none>'));
+  assertEquals('unsupported mapping filter: unsupported function in transform: trim', $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testNestedMappingFilterIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::nestedFilter::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::nestedFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::nestedFilter::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assertEquals('mapping filter not yet translated', $result.reason->orElse('<none>'));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsNotTranslatable():Boolean[1]

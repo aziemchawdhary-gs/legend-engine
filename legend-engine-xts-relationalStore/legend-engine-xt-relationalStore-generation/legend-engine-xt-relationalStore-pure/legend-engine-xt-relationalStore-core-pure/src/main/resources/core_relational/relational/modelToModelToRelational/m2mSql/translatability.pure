@@ -34,7 +34,7 @@ Class meta::relational::m2mSql::M2MSqlTranslatability
 
 function meta::relational::m2mSql::canPlanM2MSql(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], mapping:Mapping[1]):meta::relational::m2mSql::M2MSqlTranslatability[1]
 {
-  let reasons = meta::relational::m2mSql::untranslatableReasons($setImpl, $targetTree->cast(@GraphFetchTree), $mapping);
+  let reasons = meta::relational::m2mSql::untranslatableReasons($setImpl, $targetTree->cast(@GraphFetchTree), $mapping, true);
   ^meta::relational::m2mSql::M2MSqlTranslatability
   (
     translatable = $reasons->isEmpty(),
@@ -43,12 +43,26 @@ function meta::relational::m2mSql::canPlanM2MSql(setImpl:PureInstanceSetImplemen
 }
 
 // Checks that apply to a PureInstanceSetImplementation itself, regardless of which of its
-// properties the target tree actually selects: an unfiltered, non-local-property set
-// implementation is a prerequisite for translating anything reachable through it.
-function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImplementation[1]):String[*]
+// properties the target tree actually selects: a non-local-property set implementation, whose
+// filter (if any) is translatable, is a prerequisite for translating anything reachable through it.
+// `isRoot` is true only for the set implementation at the root of the target tree.
+function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImplementation[1], isRoot:Boolean[1]):String[*]
 {
-  if($setImpl.filter->isNotEmpty(),
-     | ['mapping filter not yet translated'],
+  let filterReasons = if($setImpl.filter->isEmpty(),
+     | [],
+     // A nested set's ~filter semantics on the Java graph fetch path have not been verified against
+     // the SQL projection, so only the root set's filter is pushed down.
+     | if(!$isRoot,
+          | ['mapping filter not yet translated'],
+          {|
+            let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
+            let reason   = $setImpl->meta::relational::m2mSql::mappingFilterOver(meta::relational::m2mSql::m2mSqlSourceVariable($srcClass))->toOne()->meta::relational::m2mSql::explainUntranslatableExpression();
+            if($reason->isEmpty(), | [], | ('unsupported mapping filter: ' + $reason->toOne()));
+          }
+         )
+    );
+  if($filterReasons->isNotEmpty(),
+     | $filterReasons,
      | if($setImpl.mappingClass->isNotEmpty() || $setImpl.propertyMappings->exists(pm | $pm.localMappingProperty == true),
           | ['local mapping property not yet translated'],
           | []
@@ -56,9 +70,9 @@ function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImple
     );
 }
 
-function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1]):String[*]
+function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1]):String[*]
 {
-  let rootReasons = $setImpl->rootLevelReasons();
+  let rootReasons = $setImpl->rootLevelReasons($isRoot);
   if($rootReasons->isNotEmpty(),
      | $rootReasons,
      | if($tree.subTypeTrees->isNotEmpty(),
@@ -113,7 +127,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                       let nestedSetImpl = $mapping->rootClassMappingByClass($propertyTree.property.genericType.rawType->toOne()->cast(@Class<Any>));
                       if($nestedSetImpl->isEmpty() || !$nestedSetImpl->toOne()->instanceOf(PureInstanceSetImplementation),
                          | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
-                         | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne()->cast(@PureInstanceSetImplementation), $propertyTree->cast(@GraphFetchTree), $mapping)
+                         | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne()->cast(@PureInstanceSetImplementation), $propertyTree->cast(@GraphFetchTree), $mapping, false)
                         );
                     }
                    );
@@ -158,7 +172,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                           let nestedSetImpl = meta::relational::m2mSql::resolveNestedSetImplementation($propertyMappings->at(0), $mapping);
                                           if($nestedSetImpl->isEmpty(),
                                              | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
-                                             | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping)
+                                             | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping, false)
                                             );
                                         }
                                        )
@@ -250,8 +264,8 @@ function meta::relational::m2mSql::isSqlTranslatableExpression(vs:ValueSpecifica
   $vs->explainUntranslatableExpression()->isEmpty();
 }
 
-// Conservative by design: only arithmetic/string composition proven safe by the parity corpus is
-// listed here. Extend only when a new translatable parity case demands it.
+// Conservative by design: only arithmetic/string composition and boolean/comparison logic proven
+// safe by the parity corpus is listed here. Extend only when a new translatable parity case demands it.
 function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<Any>[*]
 {
   [
@@ -263,6 +277,14 @@ function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<A
     times_Integer_MANY__Integer_1_,
     times_Number_MANY__Number_1_,
     divide_Number_1__Number_1__Float_1_,
-    toOne_T_MANY__T_1_
+    toOne_T_MANY__T_1_,
+    and_Boolean_1__Boolean_1__Boolean_1_,
+    or_Boolean_1__Boolean_1__Boolean_1_,
+    not_Boolean_1__Boolean_1_,
+    equal_Any_MANY__Any_MANY__Boolean_1_,
+    lessThan_Number_1__Number_1__Boolean_1_,
+    lessThanEqual_Number_1__Number_1__Boolean_1_,
+    greaterThan_Number_1__Number_1__Boolean_1_,
+    greaterThanEqual_Number_1__Number_1__Boolean_1_
   ];
 }

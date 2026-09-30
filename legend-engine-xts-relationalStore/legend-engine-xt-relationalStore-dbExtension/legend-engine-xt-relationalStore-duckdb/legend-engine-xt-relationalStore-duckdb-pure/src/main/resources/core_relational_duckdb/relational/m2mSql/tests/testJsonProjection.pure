@@ -73,7 +73,29 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model
   tags : String[*];
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Member
+{
+  name   : String[1];
+  age    : Integer[1];
+  active : Boolean[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Member
+{
+  name : String[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::mappingFilterMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Member: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Member
+    ~filter $src.active && ($src.age >= 18)
+    name: $src.name
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Person: Pure
@@ -151,17 +173,16 @@ function meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::ex
   ];
 }
 
-// Column names in the projection are derived from target property aliases, so a `"` in an alias must
-// be doubled wherever m2mSqlQuoteIdentifier quotes it -- otherwise the alias's own quote terminates
-// the SQL identifier early and garbles the generated query.
+// Column names in the projection are derived from target property aliases, so an alias can carry a
+// `"`. The SQL generator's identifier processor drops embedded quotes before re-quoting, so the
+// identifier stays well formed on both sides of the sub-query; only the JSON key keeps the quote.
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testAliasWithQuoteIsEscaped():Boolean[1]
 {
   let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::simpleRenameMapping;
   let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Person);
   let q       = buildM2MSqlQuery($setImpl, #{Person {'na"me': fullName}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
-  assert($q.sqlQuery->contains('"m2m_sub"."na""me"'), | 'expected the outer document reference to double the embedded quote, got: ' + $q.sqlQuery);
-  assertEquals('select json_object(\'na"me\', "m2m_sub"."na""me") as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "na""me" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'na"me\', "m2m_sub"."name") as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "name" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }
 
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testSimpleM2MSqlQuery():Boolean[1]
@@ -215,4 +236,16 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
 
   assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
   assertEquals('select json_object(\'name\', "m2m_sub"."name", \'other\', "m2m_sub"."other") as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", json_extract_string("root".data, \'$.other\') as "other" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// The mapping's ~filter is already over the source class, so it goes into the inner query as a WHERE
+// clause on the semi-structured extracts, ahead of the projection.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testMappingFilterM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::mappingFilterMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Member);
+  let q       = buildM2MSqlQuery($setImpl, #{Member {name}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
+  assertEquals('select json_object(\'name\', "m2m_sub"."name") as "doc" from (select json_extract_string("root".data, \'$.name\') as "name" from m2m_src_0 as "root" where (cast(json_extract("root".data, \'$.active\') as BOOLEAN) and cast(json_extract("root".data, \'$.age\')as INTEGER) >= 18)) as "m2m_sub"', $q.sqlQuery);
 }

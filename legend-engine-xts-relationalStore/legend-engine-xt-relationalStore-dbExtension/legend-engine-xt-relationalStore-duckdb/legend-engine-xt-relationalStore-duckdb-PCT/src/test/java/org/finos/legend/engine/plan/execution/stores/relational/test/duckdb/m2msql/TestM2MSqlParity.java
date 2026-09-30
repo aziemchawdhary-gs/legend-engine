@@ -546,6 +546,61 @@ public class TestM2MSqlParity
         assertParity("mappingFilter", MAPPING_FILTER_GRAMMAR, MAPPING_FILTER_QUERY, MAPPING_FILTER_EXPECTED);
     }
 
+    // Zed is old enough, so it is the negated equality that has to exclude him; the 17-year-old is
+    // excluded by the age comparison.
+    private static final String COMPARISON_FILTER_GRAMMAR =
+            "Class m2msql::comparisonFilter::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "}\n" +
+            "Class m2msql::comparisonFilter::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   age: Integer[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::comparisonFilter::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::comparisonFilter::S_Person\n" +
+            "      ~filter ($src.age >= 18) && !($src.name == 'Zed')\n" +
+            "      name: $src.name\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::comparisonFilter::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"Teen\",\"age\":17},{\"name\":\"Adult\",\"age\":18},{\"name\":\"Zed\",\"age\":40}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String COMPARISON_FILTER_QUERY =
+            "|m2msql::comparisonFilter::Person.all()->graphFetch(#{m2msql::comparisonFilter::Person{name}}#)->serialize(#{m2msql::comparisonFilter::Person{name}}#)";
+
+    private static final String COMPARISON_FILTER_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"Adult\"}}";
+
+    @Test
+    void comparisonFilter()
+    {
+        assertParity("comparisonFilter", COMPARISON_FILTER_GRAMMAR, COMPARISON_FILTER_QUERY, COMPARISON_FILTER_EXPECTED);
+    }
+
     private static final String ENUM_TRANSFORM_GRAMMAR =
             "Enum m2msql::enumTransform::SourceColor\n" +
             "{\n" +
