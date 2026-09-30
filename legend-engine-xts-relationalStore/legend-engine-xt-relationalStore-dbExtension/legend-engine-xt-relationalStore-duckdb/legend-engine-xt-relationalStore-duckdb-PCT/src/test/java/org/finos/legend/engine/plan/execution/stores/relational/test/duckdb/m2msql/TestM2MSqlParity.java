@@ -912,6 +912,318 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"code\":1},{\"code\":2},{\"code\":3}]}");
     }
 
+    // `status` is optional and the first row has none. An equality against an absent value is false on
+    // the Java path and NULL in SQL: the same thing for a filter on its own, not under a negation.
+    private static final String OPTIONAL_FILTER_GRAMMAR =
+            "Class m2msql::optionalFilter::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "}\n" +
+            "Class m2msql::optionalFilter::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   status: String[0..1];\n" +
+            "   region: String[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::optionalFilter::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::optionalFilter::S_Person\n" +
+            "      ~filter ${FILTER}\n" +
+            "      name: $src.name\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::optionalFilter::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"a\",\"region\":\"EU\"},{\"name\":\"b\",\"status\":\"X\",\"region\":\"EU\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String OPTIONAL_FILTER_QUERY = "|m2msql::optionalFilter::Person.all()->graphFetch(#{m2msql::optionalFilter::Person{name}}#)->serialize(#{m2msql::optionalFilter::Person{name}}#)";
+
+    @Test
+    void optionalEqualityFilter()
+    {
+        assertParity("optionalEqualityFilter", OPTIONAL_FILTER_GRAMMAR.replace("${FILTER}", "$src.status == 'X'"), OPTIONAL_FILTER_QUERY, "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"b\"}}");
+    }
+
+    @Test
+    void negatedCompoundFilter()
+    {
+        assertParity("negatedCompoundFilter", OPTIONAL_FILTER_GRAMMAR.replace("${FILTER}", "!(($src.status == 'X') && ($src.region == 'EU'))"), OPTIONAL_FILTER_QUERY, "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"a\"}}");
+    }
+
+    // A comparison as a property value: false for an absent title on the Java path, NULL in SQL.
+    private static final String BOOLEAN_TRANSFORM_GRAMMAR =
+            "Class m2msql::booleanTransform::Person\n" +
+            "{\n" +
+            "   isBoss: Boolean[1];\n" +
+            "}\n" +
+            "Class m2msql::booleanTransform::S_Person\n" +
+            "{\n" +
+            "   title: String[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::booleanTransform::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::booleanTransform::S_Person\n" +
+            "      isBoss: $src.title == 'Boss'\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::booleanTransform::S_Person;\n" +
+            "  url: 'data:application/json,[{},{\"title\":\"Boss\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void booleanTransform()
+    {
+        assertParity("booleanTransform", BOOLEAN_TRANSFORM_GRAMMAR, "|m2msql::booleanTransform::Person.all()->graphFetch(#{m2msql::booleanTransform::Person{isBoss}}#)->serialize(#{m2msql::booleanTransform::Person{isBoss}}#)", "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"isBoss\":false},{\"isBoss\":true}]}");
+    }
+
+    // A collection populated from a scalar, and a scalar taken from a collection: the inner query
+    // extracts by the source property's own shape, which is not the shape the document needs.
+    private static final String MULTIPLICITY_COERCION_GRAMMAR =
+            "Class m2msql::multiplicityCoercion::Item\n" +
+            "{\n" +
+            "   aliases: String[*];\n" +
+            "   first: String[1];\n" +
+            "}\n" +
+            "Class m2msql::multiplicityCoercion::S_Item\n" +
+            "{\n" +
+            "   nickname: String[0..1];\n" +
+            "   names: String[*];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::multiplicityCoercion::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::multiplicityCoercion::S_Item\n" +
+            "      aliases: $src.nickname,\n" +
+            "      first: $src.names->toOne()\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::multiplicityCoercion::S_Item;\n" +
+            "  url: 'data:application/json,[{\"nickname\":\"Janey\",\"names\":[\"a\"]},{\"names\":[\"b\"]}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void multiplicityCoercion()
+    {
+        assertParity("multiplicityCoercion", MULTIPLICITY_COERCION_GRAMMAR, "|m2msql::multiplicityCoercion::Item.all()->graphFetch(#{m2msql::multiplicityCoercion::Item{aliases,first}}#)->serialize(#{m2msql::multiplicityCoercion::Item{aliases,first}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"aliases\":[\"Janey\"],\"first\":\"a\"},{\"aliases\":[],\"first\":\"b\"}]}");
+    }
+
+    // `address` has no property mapping. The Java path only auto-maps data-typed properties, so a
+    // complex one is left empty even though the source has a same-named object.
+    private static final String UNMAPPED_COMPLEX_GRAMMAR =
+            "Class m2msql::unmappedComplex::Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "}\n" +
+            "Class m2msql::unmappedComplex::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::unmappedComplex::Address[0..1];\n" +
+            "}\n" +
+            "Class m2msql::unmappedComplex::S_Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "}\n" +
+            "Class m2msql::unmappedComplex::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::unmappedComplex::S_Address[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::unmappedComplex::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::unmappedComplex::S_Person\n" +
+            "      name: $src.name\n" +
+            "   }\n" +
+            "   *m2msql::unmappedComplex::Address: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::unmappedComplex::S_Address\n" +
+            "      city: $src.city\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::unmappedComplex::S_Person;\n" +
+            "  url: 'data:application/json,{\"name\":\"J\",\"address\":{\"city\":\"NYC\"}}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void unmappedComplex()
+    {
+        assertParity("unmappedComplex", UNMAPPED_COMPLEX_GRAMMAR, "|m2msql::unmappedComplex::Person.all()->graphFetch(#{m2msql::unmappedComplex::Person{name,address{city}}}#)->serialize(#{m2msql::unmappedComplex::Person{name,address{city}}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"J\",\"address\":null}}");
+    }
+
+    // Explode together with everything else that shapes the rows: a mapping filter (i2 is inactive), a
+    // source row with no `tags` key at all (i3), and a nested object that is present on one exploded
+    // row group and absent on another.
+    private static final String EXPLODE_COMPOSITE_GRAMMAR =
+            "Class m2msql::explodeComposite::Owner\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "}\n" +
+            "Class m2msql::explodeComposite::Tag\n" +
+            "{\n" +
+            "   item: String[1];\n" +
+            "   name: String[1];\n" +
+            "   owner: m2msql::explodeComposite::Owner[0..1];\n" +
+            "}\n" +
+            "Class m2msql::explodeComposite::S_Owner\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "}\n" +
+            "Class m2msql::explodeComposite::S_Item\n" +
+            "{\n" +
+            "   id: String[1];\n" +
+            "   active: Boolean[1];\n" +
+            "   tags: String[*];\n" +
+            "   owner: m2msql::explodeComposite::S_Owner[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::explodeComposite::Tag: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::explodeComposite::S_Item\n" +
+            "      ~filter $src.active\n" +
+            "      item: $src.id,\n" +
+            "      name* : $src.tags,\n" +
+            "      owner: $src.owner\n" +
+            "   }\n" +
+            "   *m2msql::explodeComposite::Owner: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::explodeComposite::S_Owner\n" +
+            "      name: $src.name\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::explodeComposite::S_Item;\n" +
+            "  url: 'data:application/json,[{\"id\":\"i1\",\"active\":true,\"tags\":[\"a\",\"b\"],\"owner\":{\"name\":\"O1\"}},{\"id\":\"i2\",\"active\":false,\"tags\":[\"c\"],\"owner\":{\"name\":\"O2\"}},{\"id\":\"i3\",\"active\":true,\"owner\":{\"name\":\"O3\"}},{\"id\":\"i4\",\"active\":true,\"tags\":[\"d\"]}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void explodeComposite()
+    {
+        assertParity("explodeComposite", EXPLODE_COMPOSITE_GRAMMAR, "|m2msql::explodeComposite::Tag.all()->graphFetch(#{m2msql::explodeComposite::Tag{item,name,owner{name}}}#)->serialize(#{m2msql::explodeComposite::Tag{item,name,owner{name}}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\",\"name\":\"a\",\"owner\":{\"name\":\"O1\"}},{\"item\":\"i1\",\"name\":\"b\",\"owner\":{\"name\":\"O1\"}},{\"item\":\"i4\",\"name\":\"d\",\"owner\":null}]}");
+    }
+
+    @Test
+    void explodeCompositeRootFilter()
+    {
+        assertParity("explodeCompositeRootFilter", EXPLODE_COMPOSITE_GRAMMAR,
+                "|m2msql::explodeComposite::Tag.all()->filter(t | $t.item == 'i1')->graphFetch(#{m2msql::explodeComposite::Tag{item,name,owner{name}}}#)->serialize(#{m2msql::explodeComposite::Tag{item,name,owner{name}}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\",\"name\":\"a\",\"owner\":{\"name\":\"O1\"}},{\"item\":\"i1\",\"name\":\"b\",\"owner\":{\"name\":\"O1\"}}]}");
+    }
+
+    // The exploded property is fetched but not serialized. The Java path still yields one instance per
+    // element; a document projected from the serialize tree alone would not.
+    @Test
+    void explodeNarrowSerialize()
+    {
+        assertParity("explodeNarrowSerialize",
+                EXPLODE_MAPPING_GRAMMAR.replace("${URL}", "data:application/json,[{\"id\":\"i1\",\"tags\":[\"a\",\"b\"]},{\"id\":\"i2\",\"tags\":[]}]"),
+                "|m2msql::explodeMapping::Tag.all()->graphFetch(#{m2msql::explodeMapping::Tag{item,name}}#)->serialize(#{m2msql::explodeMapping::Tag{item}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\"},{\"item\":\"i1\"}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;

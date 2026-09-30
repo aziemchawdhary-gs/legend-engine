@@ -138,6 +138,14 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
     );
 }
 
+// The source property types pureTypeToSemiStructuredExtractType has an extract type for. The collapse
+// checks the source tree against this before synthesis, so that an unsupported one is a fallback and
+// not the `fail` below.
+function meta::relational::m2mSql::isExtractableSourceType(t:Type[1]):Boolean[1]
+{
+  $t->instanceOf(Enumeration) || $t->in([String, Integer, Float, Decimal, Boolean, StrictDate, Date, DateTime]);
+}
+
 function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredExtractType(t:Type[1]):String[1]
 {
   // An enumeration value is its name in the source JSON, and its name again in the serialized target.

@@ -6,5 +6,25 @@
   {
     "case": "rootFilterDeepNavigation",
     "reason": "root filter is not translatable to the source"
+  },
+  {
+    "case": "negatedCompoundFilter",
+    "reason": "unsupported mapping filter: negation of an expression that combines an equality with other conditions"
+  },
+  {
+    "case": "booleanTransform",
+    "reason": "unsupported transform for property isBoss: unsupported function in transform: equal"
+  },
+  {
+    "case": "multiplicityCoercion",
+    "reason": "collection property aliases is not mapped from a to-many String source property"
+  },
+  {
+    "case": "unmappedComplex",
+    "reason": "unmapped complex property not yet translated: address"
+  },
+  {
+    "case": "explodeNarrowSerialize",
+    "reason": "explode property mapping is not selected as a leaf of the graph fetch tree"
   }
 ]
