@@ -140,12 +140,14 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
 
 function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredExtractType(t:Type[1]):String[1]
 {
-  if($t == String,                | 'VARCHAR',
+  // An enumeration value is its name in the source JSON, and its name again in the serialized target.
+  if($t->instanceOf(Enumeration), | 'VARCHAR',
+  | if($t == String,              | 'VARCHAR',
   | if($t == Integer,             | 'INTEGER',
   | if($t == Float,               | 'FLOAT',
   | if($t == Decimal,             | 'DECIMAL',
   | if($t == Boolean,             | 'BOOLEAN',
   | if($t == StrictDate,          | 'DATE',
   | if($t->in([Date, DateTime]),  | 'TIMESTAMP',
-  | fail('Unsupported source primitive for M2M SQL: ' + $t->cast(@PackageableElement)->elementToPath()); 'VARCHAR';)))))));
+  | fail('Unsupported source primitive for M2M SQL: ' + $t->cast(@PackageableElement)->elementToPath()); 'VARCHAR';))))))));
 }

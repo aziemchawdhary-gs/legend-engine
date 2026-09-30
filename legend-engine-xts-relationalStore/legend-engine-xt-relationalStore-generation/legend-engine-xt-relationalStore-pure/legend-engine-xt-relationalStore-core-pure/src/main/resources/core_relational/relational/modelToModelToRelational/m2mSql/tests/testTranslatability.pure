@@ -237,8 +237,7 @@ Class meta::relational::m2mSql::tests::selfSource::S_Flat
 }
 
 // An Enumeration-typed source property passed straight through, with no EnumerationMapping in
-// sight: synthesizeSourceStore has no semi-structured extract type for an enumeration and would
-// `fail` on it, so the gate has to reject it before the collapse ever calls into synthesis.
+// sight: the synthetic source store extracts it as VARCHAR, the enum's name.
 Enum meta::relational::m2mSql::tests::enumProperty::Colour
 {
   RED, GREEN
@@ -254,7 +253,7 @@ Class meta::relational::m2mSql::tests::enumProperty::S_Item
   other: String[1];
 }
 
-// Same hole on the auto-mapping branch: colour is left entirely unmapped below.
+// The same on the auto-mapping branch: colour is left entirely unmapped below.
 Class meta::relational::m2mSql::tests::enumAutoMapped::Item
 {
   colour: meta::relational::m2mSql::tests::enumProperty::Colour[1];
@@ -514,6 +513,16 @@ Mapping meta::relational::m2mSql::tests::enumProperty::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::enumLiteralFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::enumProperty::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::enumProperty::S_Item
+    ~filter $src.colour == meta::relational::m2mSql::tests::enumProperty::Colour.RED
+    other: $src.other
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::enumAutoMapped::TestMapping
 (
   *meta::relational::m2mSql::tests::enumAutoMapped::Item: Pure
@@ -730,18 +739,17 @@ function <<test.Test>> meta::relational::m2mSql::tests::testToManyComplexPropert
   assert($result.reason->toOne()->contains('to-many'), | 'expected a to-many reason, got: ' + $result.reason->orElse(''));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationTypedSourcePropertyIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationTypedSourcePropertyIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::enumProperty::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::enumProperty::Item)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::enumProperty::Item{colour, other}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable, | 'expected an enumeration-typed source property to be rejected');
-  assert($result.reason->toOne()->contains('enumeration'), | 'expected an enumeration reason, got: ' + $result.reason->orElse(''));
+  assert($result.translatable, | 'expected an enumeration-typed source property to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedEnumerationPropertyIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedEnumerationPropertyIsTranslatable():Boolean[1]
 {
   let mapping        = meta::relational::m2mSql::tests::enumAutoMapped::TestMapping;
   let setImpl        = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::enumAutoMapped::Item)->cast(@PureInstanceSetImplementation)->toOne();
@@ -754,8 +762,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedEnumeratio
 
   let tree   = #{meta::relational::m2mSql::tests::enumAutoMapped::Item{colour, other}}#->cast(@RootGraphFetchTree<Any>);
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable, | 'expected an auto-mapped enumeration property to be rejected');
-  assert($result.reason->toOne()->contains('enumeration'), | 'expected an enumeration reason, got: ' + $result.reason->orElse(''));
+  assert($result.translatable, | 'expected an auto-mapped enumeration property to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testNonNavigationComplexPropertyIsNotTranslatable():Boolean[1]
@@ -905,4 +912,17 @@ function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterReadingAno
                     meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
                     meta::relational::m2mSql::tests::nestedComplexToOne::Person);
   assertEmpty($rewritten);
+}
+
+// The source property is extracted as VARCHAR; how an enumeration literal compares against that in
+// SQL is not established, so the literal keeps the query on the Java path.
+function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationLiteralIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::enumLiteralFilter::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::enumProperty::Item)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::enumProperty::Item{other}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assertEquals('unsupported mapping filter: unsupported function in transform: extractEnumValue', $result.reason->orElse('<none>'));
 }
