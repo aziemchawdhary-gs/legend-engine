@@ -73,6 +73,14 @@ Class meta::relational::m2mSql::M2MSqlProjection
 // document with DuckDB's json_object/json_array.
 function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], connection:DatabaseConnection[1], extensions:Extension[*], debug:DebugContext[1]):M2MSqlQuery[1]
 {
+  buildM2MSqlQuery($setImpl, $targetTree, [], $connection, $extensions, $debug);
+}
+
+// `rootFilters` are boolean expressions over the root $src variable (see m2mSqlSourceVariable) that
+// restrict the source rows on top of the mapping's own ~filter: the query's root `filter()`, already
+// rewritten to the source side by rewriteTargetFilterToSource.
+function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], rootFilters:ValueSpecification[*], connection:DatabaseConnection[1], extensions:Extension[*], debug:DebugContext[1]):M2MSqlQuery[1]
+{
   let srcClass   = $setImpl.srcClass->toOne()->cast(@Class<Any>);
   let srcVar     = m2mSqlSourceVariable($srcClass);
   let projection = flattenTargetTree($setImpl, $targetTree->cast(@GraphFetchTree), $srcVar, [], $setImpl.parent, $srcClass);
@@ -86,10 +94,14 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                                                 rawType       = LambdaFunction,
                                                 typeArguments = ^GenericType(rawType = ^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = TabularDataSet)))
                                               ),
-                      expressionSequence    = buildProjectExpression($srcClass, $columns, $setImpl->mappingFilterOver($srcVar))
+                      expressionSequence    = buildProjectExpression($srcClass, $columns, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters))
                     );
 
-  let source     = synthesizeSourceStore($srcClass, $targetTree->calculateSourceTree($setImpl.parent, $extensions));
+  // A root filter can read source properties that nothing in the target tree maps from, which the
+  // calculated source tree then knows nothing about; the synthetic store only maps what the tree asks for.
+  let sourceTree = $rootFilters->fold({f, tree | $tree->ensureFunctionRequirementsFromLambda($srcClass, buildFilterLambda($srcClass, $f), [], false)},
+                                      $targetTree->calculateSourceTree($setImpl.parent, $extensions)->cast(@GraphFetchTree))->cast(@RootGraphFetchTree<Any>);
+  let source     = synthesizeSourceStore($srcClass, $sourceTree);
   let innerConn  = $connection->withPresenceColumns($source, $projection.presences);
   let plan       = meta::pure::executionPlan::executionPlan($queryLambda, $source.mapping, ^Runtime(connectionStores = ^ConnectionStore(element = $source.database, connection = $innerConn)), $extensions, $debug);
   let innerSql   = $plan.rootExecutionNode->meta::pure::executionPlan::allNodes($extensions)
@@ -194,12 +206,10 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
 {
   let parts = $tree.propertyTrees()->map(pt |
     let path    = $prefix->concatenate($pt->pathSegment());
-    let pms     = $setImpl->propertyMappingsByPropertyName($pt.property.name->toOne())
-                          ->filter(pm | $pm->instanceOf(PurePropertyMapping))
-                          ->cast(@PurePropertyMapping);
-    let expr    = if($pms->isEmpty(),
-                     | autoMappedSourceExpression($setImpl, $pt.property, $srcExpr),
-                     | substituteSourceVariable($pms->at(0).transform, $srcExpr));
+    let pms     = $setImpl->purePropertyMappingsFor($pt.property.name->toOne());
+    let derived = sourceExpressionForProperty($setImpl, $pt.property.name->toOne(), $srcExpr);
+    assert($derived->isNotEmpty(), | 'no property mapping and no auto-mappable source property named ' + $pt.property.name->toOne() + ' on ' + $setImpl.srcClass->toOne()->elementToPath());
+    let expr    = $derived->toOne();
     if($pt.subTrees->isEmpty(),
        | ^M2MSqlProjection(columns = ^M2MSqlColumn
                                      (
@@ -223,23 +233,40 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
   ^M2MSqlProjection(columns = $parts.columns, presences = $parts.presences);
 }
 
+function meta::relational::m2mSql::purePropertyMappingsFor(setImpl:PureInstanceSetImplementation[1], propertyName:String[1]):PurePropertyMapping[*]
+{
+  $setImpl->propertyMappingsByPropertyName($propertyName)->filter(pm | $pm->instanceOf(PurePropertyMapping))->cast(@PurePropertyMapping);
+}
+
+// The source-side expression a target property is populated from, over `srcExpr`: its property
+// mapping's transform when it has one, the same-named source property when it is auto-mapped, and
+// [] when it is neither.
+function meta::relational::m2mSql::sourceExpressionForProperty(setImpl:PureInstanceSetImplementation[1], propertyName:String[1], srcExpr:ValueSpecification[1]):ValueSpecification[0..1]
+{
+  let pms = $setImpl->purePropertyMappingsFor($propertyName);
+  if($pms->isEmpty(),
+     | autoMappedSourceExpression($setImpl, $propertyName, $srcExpr),
+     | substituteSourceVariable($pms->at(0).transform, $srcExpr));
+}
+
 // An auto-mapped property has no property mapping at all: the source class carries a property of the
 // same name, and the M2M store contract treats it as an identity pass-through. The equivalent
 // transform is a plain property access on the current source expression.
-function <<access.private>> meta::relational::m2mSql::autoMappedSourceExpression(setImpl:PureInstanceSetImplementation[1], property:AbstractProperty<Any>[1], srcExpr:ValueSpecification[1]):ValueSpecification[1]
+function <<access.private>> meta::relational::m2mSql::autoMappedSourceExpression(setImpl:PureInstanceSetImplementation[1], propertyName:String[1], srcExpr:ValueSpecification[1]):ValueSpecification[0..1]
 {
   let srcClass    = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-  let srcProperty = $srcClass->propertyByName($property.name->toOne());
-  assert($srcProperty->isNotEmpty(), | 'no property mapping and no auto-mappable source property named ' + $property.name->toOne() + ' on ' + $srcClass->elementToPath());
-  ^SimpleFunctionExpression
-  (
-    func             = $srcProperty->toOne(),
-    functionName     = $property.name->toOne(),
-    importGroup      = system::imports::coreImport,
-    genericType      = $srcProperty->toOne()->functionReturnType(),
-    multiplicity     = $srcProperty->toOne().multiplicity,
-    parametersValues = $srcExpr
-  )->evaluateAndDeactivate();
+  let srcProperty = $srcClass->propertyByName($propertyName);
+  if($srcProperty->isEmpty(),
+     | [],
+     | ^SimpleFunctionExpression
+       (
+         func             = $srcProperty->toOne(),
+         functionName     = $propertyName,
+         importGroup      = system::imports::coreImport,
+         genericType      = $srcProperty->toOne()->functionReturnType(),
+         multiplicity     = $srcProperty->toOne().multiplicity,
+         parametersValues = $srcExpr
+       )->evaluateAndDeactivate());
 }
 
 function <<access.private>> meta::relational::m2mSql::nestedSetImplementation(pms:PurePropertyMapping[*], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1]):PureInstanceSetImplementation[1]

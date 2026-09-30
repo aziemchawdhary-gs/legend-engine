@@ -375,3 +375,20 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a constrained target class must collapse once constraint checking is disabled, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
   assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'InMemory nodes must be gone');
 }
+
+// The root filter is over the target class and reads `name`, which the fetch tree does not select: it
+// is rewritten to the source side and lands in the inner query's WHERE.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testRootFilterOnUnfetchedPropertyCollapses():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Employee.all()->filter(e | $e.name == 'Jane')->graphFetch(#{Employee {address {city}}}#)->serialize(#{Employee {address {city}}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::nestedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Employee),
+               $extensions
+             );
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+
+  let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
+  assertEquals('select json_object(\'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select "root".data->\'address\'->\'city\' as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root" where json_extract_string("root".data, \'$.name\') = \'Jane\') as "m2m_sub"', $node.sqlQuery);
+}

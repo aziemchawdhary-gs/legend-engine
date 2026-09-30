@@ -259,6 +259,60 @@ function meta::relational::m2mSql::isPlainSourceNavigation(vs:ValueSpecification
   ]);
 }
 
+// Re-expresses a root `filter()` lambda, which is over the *target* class, as a boolean over the
+// source variable, by replacing each access to a target property with the source expression that
+// property is mapped from. Returns [] when the filter cannot be rewritten, or when the rewritten
+// expression is not on the SQL whitelist: the caller falls back on either.
+function meta::relational::m2mSql::rewriteTargetFilterToSource(filter:LambdaFunction<Any>[1], setImpl:PureInstanceSetImplementation[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
+{
+  let parameters = $filter->functionType().parameters->evaluateAndDeactivate();
+  let body       = $filter.expressionSequence->evaluateAndDeactivate();
+  let rewritten  = if(($parameters->size() != 1) || ($body->size() != 1),
+                      | [],
+                      | $body->toOne()->meta::relational::m2mSql::rewriteTargetExpression($parameters->at(0).name, $setImpl, $srcVar));
+  if($rewritten->isEmpty() || $rewritten->toOne()->meta::relational::m2mSql::explainUntranslatableExpression()->isNotEmpty(),
+     | [],
+     | $rewritten);
+}
+
+function <<access.private>> meta::relational::m2mSql::rewriteTargetExpression(vs:ValueSpecification[1], paramName:String[1], setImpl:PureInstanceSetImplementation[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
+{
+  $vs->match(
+  [
+    // The bare lambda parameter outside a property access has no source-side meaning. No other
+    // variable is rewritable either: left in place it could be mistaken for the source variable.
+    v:VariableExpression[1] | [],
+    sfe:SimpleFunctionExpression[1] |
+      let params = $sfe.parametersValues->evaluateAndDeactivate();
+      if($sfe.func->instanceOf(Property),
+         // Only direct properties of the root target class: $p.name yes, $p.address.city no.
+         | if(($params->size() == 1) && $params->at(0)->instanceOf(VariableExpression) && ($params->at(0)->cast(@VariableExpression).name == $paramName),
+              | meta::relational::m2mSql::filterableSourceExpression($setImpl, $sfe.func->cast(@Property<Nil,Any|*>), $srcVar),
+              | []),
+         {|
+           let rewritten = $params->map(p | $p->meta::relational::m2mSql::rewriteTargetExpression($paramName, $setImpl, $srcVar));
+           if($rewritten->size() != $params->size(),
+              | [],
+              | ^$sfe(parametersValues = $rewritten)->evaluateAndDeactivate());
+         });,
+    i:InstanceValue[1] | $i,
+    v:ValueSpecification[1] | []
+  ]);
+}
+
+// A target property's source expression is only a faithful stand-in for the property's value when the
+// value is the transform's result as is: a primitive, mapped by exactly one plain property mapping (or
+// auto-mapped). An enumeration transformer or an explode mapping changes the value or the row it
+// belongs to after the transform has run.
+function <<access.private>> meta::relational::m2mSql::filterableSourceExpression(setImpl:PureInstanceSetImplementation[1], property:Property<Nil,Any|*>[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
+{
+  let type = $property.genericType.rawType;
+  let pms  = $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($property.name->toOne());
+  if($type->isEmpty() || !$type->toOne()->instanceOf(PrimitiveType) || ($pms->size() > 1) || $pms->exists(pm | $pm.transformer->isNotEmpty() || $pm.explodeProperty == true),
+     | [],
+     | meta::relational::m2mSql::sourceExpressionForProperty($setImpl, $property.name->toOne(), $srcVar));
+}
+
 function meta::relational::m2mSql::isSqlTranslatableExpression(vs:ValueSpecification[1]):Boolean[1]
 {
   $vs->explainUntranslatableExpression()->isEmpty();

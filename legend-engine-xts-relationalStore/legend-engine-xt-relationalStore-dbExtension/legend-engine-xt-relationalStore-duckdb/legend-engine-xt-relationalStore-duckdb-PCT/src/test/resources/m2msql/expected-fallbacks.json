@@ -1,5 +1,9 @@
 [
   {
+    "case": "rootFilterDeepNavigation",
+    "reason": "root filter is not translatable to the source"
+  },
+  {
     "case": "enumTransform",
     "reason": "enumeration transformer not yet translated"
   },

@@ -59,10 +59,12 @@ function <<access.private>> meta::relational::m2mSql::collapseSerializeNode(node
        let globalNode = $node.executionNodes->at(0)->cast(@StoreMappingGlobalGraphFetchExecutionNode);
        let routedTree = $globalNode.graphFetchTree.tree->cast(@RoutedRootGraphFetchTree<Any>);
        let setImpl    = $routedTree.sets->toOne()->cast(@meta::external::store::model::PureInstanceSetImplementation);
-       let connection = $globalNode.localGraphFetchExecutionNode->cast(@InMemoryRootGraphFetchExecutionNode)
-                                   .executionNodes->at(0)->cast(@StoreStreamReadingExecutionNode)
-                                   .connection->cast(@SqlModelConnection);
-       let query      = meta::relational::m2mSql::buildM2MSqlQuery($setImpl, $routedTree->cast(@RootGraphFetchTree<Any>), $defaultConnection, $extensions, $debug);
+       let inMemory   = $globalNode.localGraphFetchExecutionNode->cast(@InMemoryRootGraphFetchExecutionNode);
+       let connection = $inMemory.executionNodes->at(0)->cast(@StoreStreamReadingExecutionNode)
+                                 .connection->cast(@SqlModelConnection);
+       // Projected from the serialize tree, not the graph fetch tree: the router widens the latter with
+       // whatever a root filter reads, and those properties are not part of the document.
+       let query      = meta::relational::m2mSql::buildM2MSqlQuery($setImpl, $node->m2mSqlSerializeTree()->toOne()->cast(@RootGraphFetchTree<Any>), $inMemory->m2mSqlRootFilter($setImpl), $defaultConnection, $extensions, $debug);
        print(if($debug.debug, | 'M2M SQL collapse: ' + $query.sqlQuery + '\n', | ''));
        ^meta::relational::m2mSql::SQLGraphSerializeExecutionNode
        (
@@ -119,7 +121,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
                  let routedTree = $globalNode.graphFetchTree.tree->cast(@RoutedRootGraphFetchTree<Any>);
                  if($routedTree.sets->size() != 1 || !$routedTree.sets->toOne()->instanceOf(meta::external::store::model::PureInstanceSetImplementation),
                     | 'root class mapping is not a single Pure instance set implementation',
-                    | if(!meta::relational::m2mSql::sameTreeShape($serializeTree->toOne(), $routedTree->cast(@GraphFetchTree)),
+                    | if(!meta::relational::m2mSql::sameTreeShape($serializeTree->toOne(), $routedTree->cast(@GraphFetchTree), true),
                          | 'serialize tree differs from the graph fetch tree',
                          // The target-class constraint guard needs the reader's enableConstraints flag,
                          // which is only reachable once the local graph fetch node is unwrapped -- peeked
@@ -143,8 +145,8 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
      | 'local graph fetch node is not a plain in-memory root node',
      {|
        let inMemory = $localNode->cast(@InMemoryRootGraphFetchExecutionNode);
-       if($inMemory.filter->isNotEmpty() || $inMemory.checked,
-          | 'filtered or checked graph fetch not yet translated',
+       if($inMemory.checked,
+          | 'checked graph fetch not yet translated',
           | if($inMemory.executionNodes->size() != 1 || !$inMemory.executionNodes->at(0)->instanceOf(StoreStreamReadingExecutionNode),
                | 'in-memory node does not read from a single store stream',
                {|
@@ -158,7 +160,10 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
                            let verdict = meta::relational::m2mSql::canPlanM2MSql($setImpl, $routedTree->cast(@RootGraphFetchTree<Any>), $setImpl.parent);
                            if(!$verdict.translatable,
                               | $verdict.reason,
-                              | $setImpl->m2mSqlSourceConstraintRejection($routedTree->cast(@RootGraphFetchTree<Any>), $reader.enableConstraints, $extensions)
+                              | if($inMemory.filter->isNotEmpty() && $inMemory->m2mSqlRootFilter($setImpl)->isEmpty(),
+                                   | 'root filter is not translatable to the source',
+                                   | $setImpl->m2mSqlSourceConstraintRejection($routedTree->cast(@RootGraphFetchTree<Any>), $reader.enableConstraints, $extensions)
+                                  )
                              );
                          }
                         )
@@ -168,6 +173,16 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
          );
      }
     );
+}
+
+// The query's root `filter()` re-expressed over the source, or [] when there is none or it is not
+// translatable. The guard and the builder each call this rather than the guard handing its result
+// on, which keeps every guard in the cascade a plain reason string.
+function <<access.private>> meta::relational::m2mSql::m2mSqlRootFilter(inMemory:InMemoryRootGraphFetchExecutionNode[1], setImpl:meta::external::store::model::PureInstanceSetImplementation[1]):ValueSpecification[0..1]
+{
+  if($inMemory.filter->isEmpty(),
+     | [],
+     | meta::relational::m2mSql::rewriteTargetFilterToSource($inMemory.filter->toOne(), $setImpl, meta::relational::m2mSql::m2mSqlSourceVariable($setImpl.srcClass->toOne()->cast(@Class<Any>))));
 }
 
 // The serialize call's own target tree, or [] when the second argument is not a plain tree literal.
@@ -189,17 +204,22 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTree(node:P
 // Structural equality of two graph fetch trees by class and property path. The serialize tree is a
 // plain tree and the graph fetch tree a routed one, so their printed forms differ and cannot be
 // compared directly.
-function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1]):Boolean[1]
+//
+// `allowExtraLeaves` lets `b` (the graph fetch tree) carry primitive leaves at this level that `a` (the
+// serialize tree) does not: the router adds the properties a root `filter()` reads to the fetch tree.
+// Fetching more than is serialized does not change the document, so those are ignored; it is only ever
+// passed for the root level, which is the only level a root filter is rewritten for.
+function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1], allowExtraLeaves:Boolean[1]):Boolean[1]
 {
   let aProperties = $a.propertyTrees();
-  let bProperties = $b.propertyTrees();
+  let bProperties = $b.propertyTrees()->filter(y | !$allowExtraLeaves || $y.subTrees->isNotEmpty() || $aProperties->exists(x | ($x.property.name == $y.property.name) && ($x.alias == $y.alias)));
   ($a.subTypeTrees->isEmpty() && $b.subTypeTrees->isEmpty())
     && ($a->m2mSqlTreeClass() == $b->m2mSqlTreeClass())
     && ($aProperties->size() == $bProperties->size())
     && $aProperties->size()->range()->forAll(i |
          let x = $aProperties->at($i);
          let y = $bProperties->at($i);
-         ($x.property.name == $y.property.name) && ($x.alias == $y.alias) && sameTreeShape($x->cast(@GraphFetchTree), $y->cast(@GraphFetchTree));
+         ($x.property.name == $y.property.name) && ($x.alias == $y.alias) && sameTreeShape($x->cast(@GraphFetchTree), $y->cast(@GraphFetchTree), false);
        );
 }
 
