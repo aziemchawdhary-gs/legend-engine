@@ -77,7 +77,7 @@ function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSet
      | $rootReasons,
      | if($tree.subTypeTrees->isNotEmpty(),
           | ['subType graph fetch trees not yet translated'],
-          | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping))
+          | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping, $isRoot))
          )
     );
 }
@@ -98,7 +98,8 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
     );
 }
 
-function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1]):String[*]
+// `isRoot` is true when `setImpl` is the set implementation at the root of the target tree.
+function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1]):String[*]
 {
   let shapeReasons = meta::relational::m2mSql::propertyShapeReasons($propertyTree);
   if($shapeReasons->isNotEmpty(),
@@ -107,6 +108,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
        let propertyMappings = $setImpl->propertyMappingsByPropertyName($propertyTree.property.name->toOne())
                                        ->filter(pm | $pm->instanceOf(PurePropertyMapping))
                                        ->cast(@PurePropertyMapping);
+       let transformerReasons = meta::relational::m2mSql::enumTransformerReasons($propertyMappings, $propertyTree, $isRoot);
        if($propertyMappings->isEmpty(),
           // A complex property with no PurePropertyMapping at all reaches jsonProjection.pure's own
           // by-name auto-mapping (autoMappedSourceExpression / nestedSetImplementation's $pms->isEmpty()
@@ -139,8 +141,8 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                     | []
                    )
               ),
-          | if($propertyMappings->exists(pm | $pm.transformer->isNotEmpty()),
-               | ['enumeration transformer not yet translated'],
+          | if($transformerReasons->isNotEmpty(),
+               | $transformerReasons,
                | if($propertyMappings->exists(pm | $pm.explodeProperty == true),
                     | ['explode property mapping not yet translated'],
                     {|
@@ -181,6 +183,29 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
               )
          );
      }
+    );
+}
+
+// An enumeration transformer is translated as a CASE over the transform's result in the outer document
+// (see jsonProjection.pure's m2mSqlEnumCaseReference), which needs that result to be one SQL scalar:
+// a to-one property of the root set implementation. A nested leaf reaches the outer query as JSON
+// rather than as a scalar, and a to-many one as the text of a JSON array. The source values have to be
+// of one kind the CASE can compare against: enumeration values (by name), strings or integers.
+function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(propertyMappings:PurePropertyMapping[*], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
+{
+  let transformers = $propertyMappings.transformer;
+  if($transformers->isEmpty(),
+     | [],
+     | if(!$isRoot || ($propertyMappings->size() != 1) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
+          | ['enumeration transformer not yet translated'],
+          {|
+            let sourceValues = $transformers->toOne()->cast(@EnumerationMapping<Any>).enumValueMappings.sourceValues;
+            if($sourceValues->forAll(v | $v->instanceOf(Enum)) || $sourceValues->forAll(v | $v->instanceOf(String)) || $sourceValues->forAll(v | $v->instanceOf(Integer)),
+               | [],
+               | ['enumeration transformer source values are not all enumeration values, all strings or all integers']
+              );
+          }
+         )
     );
 }
 

@@ -4,10 +4,6 @@
     "reason": "root filter is not translatable to the source"
   },
   {
-    "case": "enumTransform",
-    "reason": "enumeration transformer not yet translated"
-  },
-  {
     "case": "explodeMapping",
     "reason": "explode property mapping not yet translated"
   }
