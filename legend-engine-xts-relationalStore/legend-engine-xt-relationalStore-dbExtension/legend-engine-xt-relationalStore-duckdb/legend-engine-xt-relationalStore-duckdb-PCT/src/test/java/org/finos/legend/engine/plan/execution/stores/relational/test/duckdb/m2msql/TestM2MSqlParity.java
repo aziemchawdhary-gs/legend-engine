@@ -391,6 +391,77 @@ public class TestM2MSqlParity
         assertParity("nestedComplexToOne", NESTED_COMPLEX_TO_ONE_GRAMMAR, NESTED_COMPLEX_TO_ONE_QUERY, NESTED_COMPLEX_TO_ONE_EXPECTED);
     }
 
+    // The filter navigates through a complex target property, which the root-filter rewrite does not
+    // follow, so the whole query stays on the Java path.
+    private static final String ROOT_FILTER_DEEP_NAVIGATION_QUERY =
+            "|m2msql::nestedComplexToOne::Person.all()->filter(p | $p.address.city == 'NYC')->graphFetch(#{m2msql::nestedComplexToOne::Person{name,nickname,address{city}}}#)->serialize(#{m2msql::nestedComplexToOne::Person{name,nickname,address{city}}}#)";
+
+    private static final String ROOT_FILTER_DEEP_NAVIGATION_EXPECTED =
+            "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"Jane\",\"nickname\":\"Janey\",\"address\":{\"city\":\"NYC\"}}}";
+
+    @Test
+    void rootFilterDeepNavigation()
+    {
+        assertParity("rootFilterDeepNavigation", NESTED_COMPLEX_TO_ONE_GRAMMAR, ROOT_FILTER_DEEP_NAVIGATION_QUERY, ROOT_FILTER_DEEP_NAVIGATION_EXPECTED);
+    }
+
+    // The filter is over the target class: fullName is a computed target property, and age is filtered
+    // on without being fetched, so its source property is only reachable through the filter.
+    private static final String ROOT_FILTER_GRAMMAR =
+            "Class m2msql::rootFilter::Person\n" +
+            "{\n" +
+            "   fullName: String[1];\n" +
+            "   age: Integer[1];\n" +
+            "}\n" +
+            "Class m2msql::rootFilter::S_Person\n" +
+            "{\n" +
+            "   firstName: String[1];\n" +
+            "   lastName: String[1];\n" +
+            "   years: Integer[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::rootFilter::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::rootFilter::S_Person\n" +
+            "      fullName: $src.firstName + ' ' + $src.lastName,\n" +
+            "      age: $src.years\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::rootFilter::S_Person;\n" +
+            "  url: 'data:application/json,[{\"firstName\":\"Jane\",\"lastName\":\"Doe\",\"years\":30},{\"firstName\":\"Jane\",\"lastName\":\"Doe\",\"years\":10},{\"firstName\":\"John\",\"lastName\":\"Roe\",\"years\":40}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String ROOT_FILTER_QUERY =
+            "|m2msql::rootFilter::Person.all()->filter(p | ($p.fullName == 'Jane Doe') && ($p.age >= 18))->graphFetch(#{m2msql::rootFilter::Person{fullName}}#)->serialize(#{m2msql::rootFilter::Person{fullName}}#)";
+
+    private static final String ROOT_FILTER_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":{\"fullName\":\"Jane Doe\"}}";
+
+    @Test
+    void rootFilter()
+    {
+        assertParity("rootFilter", ROOT_FILTER_GRAMMAR, ROOT_FILTER_QUERY, ROOT_FILTER_EXPECTED);
+    }
+
     private static final String AUTO_MAPPED_GRAMMAR =
             "Class m2msql::autoMapped::Item\n" +
             "{\n" +

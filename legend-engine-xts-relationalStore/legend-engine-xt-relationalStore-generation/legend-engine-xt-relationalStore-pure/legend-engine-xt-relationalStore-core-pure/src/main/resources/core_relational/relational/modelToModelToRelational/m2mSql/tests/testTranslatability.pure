@@ -821,3 +821,88 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPro
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assert($result.translatable, | 'expected an auto-mapped complex property whose child is translatable to be accepted, got reason: ' + $result.reason->orElse(''));
 }
+
+function meta::relational::m2mSql::tests::rewriteRootFilter(filter:meta::pure::metamodel::function::LambdaFunction<Any>[1], mapping:Mapping[1], targetClass:Class<Any>[1]):meta::pure::metamodel::valuespecification::ValueSpecification[0..1]
+{
+  let setImpl = $mapping->rootClassMappingByClass($targetClass)->cast(@PureInstanceSetImplementation)->toOne();
+  let srcVar  = ^meta::pure::metamodel::valuespecification::VariableExpression(name = 'src', genericType = ^GenericType(rawType = $setImpl.srcClass->toOne()), multiplicity = PureOne);
+  rewriteTargetFilterToSource($filter, $setImpl, $srcVar);
+}
+
+// The names of the properties an expression reads, in evaluation order, and the variables it reads
+// them from: enough to tell a source-side expression from a target-side one.
+function meta::relational::m2mSql::tests::propertiesAndVariables(vs:meta::pure::metamodel::valuespecification::ValueSpecification[1]):String[*]
+{
+  $vs->match(
+  [
+    v:meta::pure::metamodel::valuespecification::VariableExpression[1] | '$' + $v.name,
+    sfe:meta::pure::metamodel::valuespecification::SimpleFunctionExpression[1] |
+      let inner = $sfe.parametersValues->evaluateAndDeactivate()->map(p | $p->meta::relational::m2mSql::tests::propertiesAndVariables());
+      if($sfe.func->instanceOf(meta::pure::metamodel::function::property::Property), | $inner->concatenate($sfe.func.name->toOne()), | $inner);,
+    // A function taking a collection (`plus`) holds its operands as the values of one InstanceValue.
+    i:meta::pure::metamodel::valuespecification::InstanceValue[1] |
+      $i.values->filter(v | $v->instanceOf(meta::pure::metamodel::valuespecification::ValueSpecification))
+               ->cast(@meta::pure::metamodel::valuespecification::ValueSpecification)
+               ->map(v | $v->meta::relational::m2mSql::tests::propertiesAndVariables()),
+    a:meta::pure::metamodel::valuespecification::ValueSpecification[1] | []
+  ]);
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnDirectPropertyIsRewrittenToSource():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {p:meta::relational::m2mSql::tests::nestedComplexToOne::Person[1] | $p.name == 'Jane'},
+                    meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
+                    meta::relational::m2mSql::tests::nestedComplexToOne::Person);
+  assertEquals(['$src', 'name'], $rewritten->toOne()->meta::relational::m2mSql::tests::propertiesAndVariables());
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnComputedPropertyIsRewrittenToItsTransform():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {p:meta::relational::m2mSql::tests::simpleRename::Person[1] | $p.fullName == 'Jane Doe'},
+                    meta::relational::m2mSql::tests::simpleRename::TestMapping,
+                    meta::relational::m2mSql::tests::simpleRename::Person);
+  assertEquals(['$src', 'firstName', '$src', 'lastName'], $rewritten->toOne()->meta::relational::m2mSql::tests::propertiesAndVariables());
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterThroughComplexPropertyIsNotRewritten():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {p:meta::relational::m2mSql::tests::nestedComplexToOne::Person[1] | $p.address.city == 'NYC'},
+                    meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
+                    meta::relational::m2mSql::tests::nestedComplexToOne::Person);
+  assertEmpty($rewritten);
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterWithUnwhitelistedFunctionIsNotRewritten():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {p:meta::relational::m2mSql::tests::nestedComplexToOne::Person[1] | $p.name->trim() == 'Jane'},
+                    meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
+                    meta::relational::m2mSql::tests::nestedComplexToOne::Person);
+  assertEmpty($rewritten);
+}
+
+// The transform yields the *source* enum value; the target property holds what the enumeration
+// mapping turned it into, so comparing the transform's result against a target value would be wrong.
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnEnumTransformedPropertyIsNotRewritten():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {i:meta::relational::m2mSql::tests::enumTransform::Item[1] | $i.color == meta::relational::m2mSql::tests::enumTransform::TargetColor.RED},
+                    meta::relational::m2mSql::tests::enumTransform::TestMapping,
+                    meta::relational::m2mSql::tests::enumTransform::Item);
+  assertEmpty($rewritten);
+}
+
+// A variable that is not the filter's own parameter (a query parameter, say) has no source-side
+// meaning, and must not survive to be mistaken for the source variable when it happens to be named src.
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterReadingAnotherVariableIsNotRewritten():Boolean[1]
+{
+  let src       = 'Jane';
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {p:meta::relational::m2mSql::tests::nestedComplexToOne::Person[1] | $p.name == $src},
+                    meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
+                    meta::relational::m2mSql::tests::nestedComplexToOne::Person);
+  assertEmpty($rewritten);
+}
