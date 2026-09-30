@@ -85,7 +85,41 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model
   name : String[1];
 }
 
+Enum meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::SourceColor
+{
+  ROUGE, CARMIN, VERT
+}
+
+Enum meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::TargetColor
+{
+  RED, GREEN
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Paint
+{
+  color : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::SourceColor[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Paint
+{
+  color : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::TargetColor[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::enumTransformMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Paint: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Paint
+    color: EnumerationMapping colorMapping : $src.color
+  }
+  meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::TargetColor: EnumerationMapping colorMapping
+  {
+    RED: [meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::SourceColor.ROUGE, meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::SourceColor.CARMIN],
+    GREEN: [meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::SourceColor.VERT]
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::mappingFilterMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Member: Pure
@@ -248,4 +282,15 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
 
   assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
   assertEquals('select json_object(\'name\', "m2m_sub"."name") as "doc" from (select json_extract_string("root".data, \'$.name\') as "name" from m2m_src_0 as "root" where (cast(json_extract("root".data, \'$.active\') as BOOLEAN) and cast(json_extract("root".data, \'$.age\')as INTEGER) >= 18)) as "m2m_sub"', $q.sqlQuery);
+}
+
+// The inner query projects the raw source value; the enumeration mapping is a CASE in the outer
+// document, one arm per source value, raising on a value it has no arm for.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testEnumTransformM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::enumTransformMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Paint);
+  let q       = buildM2MSqlQuery($setImpl, #{Paint {color}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals('select json_object(\'color\', case when "m2m_sub"."color" is null then null else case when "m2m_sub"."color" = \'ROUGE\' then \'RED\' else case when "m2m_sub"."color" = \'CARMIN\' then \'RED\' else case when "m2m_sub"."color" = \'VERT\' then \'GREEN\' else error(\'Unmatched enum source value for property color\') end end end end) as "doc" from (select json_extract_string("root".data, \'$.color\') as "color" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }

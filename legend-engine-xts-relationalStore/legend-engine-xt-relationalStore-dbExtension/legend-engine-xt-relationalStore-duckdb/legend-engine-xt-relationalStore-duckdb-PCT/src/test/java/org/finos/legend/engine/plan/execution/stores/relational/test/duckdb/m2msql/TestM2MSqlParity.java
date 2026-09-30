@@ -52,6 +52,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -732,7 +733,7 @@ public class TestM2MSqlParity
     private static final String ENUM_TRANSFORM_GRAMMAR =
             "Enum m2msql::enumTransform::SourceColor\n" +
             "{\n" +
-            "   ROUGE, VERT, BLEU\n" +
+            "   ROUGE, CARMIN, VERT, BLEU\n" +
             "}\n" +
             "Enum m2msql::enumTransform::TargetColor\n" +
             "{\n" +
@@ -740,11 +741,11 @@ public class TestM2MSqlParity
             "}\n" +
             "Class m2msql::enumTransform::Item\n" +
             "{\n" +
-            "   color: m2msql::enumTransform::TargetColor[1];\n" +
+            "   color: m2msql::enumTransform::TargetColor[0..1];\n" +
             "}\n" +
             "Class m2msql::enumTransform::S_Item\n" +
             "{\n" +
-            "   color: m2msql::enumTransform::SourceColor[1];\n" +
+            "   color: m2msql::enumTransform::SourceColor[0..1];\n" +
             "}\n" +
             "\n" +
             "###Mapping\n" +
@@ -757,7 +758,7 @@ public class TestM2MSqlParity
             "   }\n" +
             "   m2msql::enumTransform::TargetColor: EnumerationMapping colorMapping\n" +
             "   {\n" +
-            "      RED: [m2msql::enumTransform::SourceColor.ROUGE],\n" +
+            "      RED: [m2msql::enumTransform::SourceColor.ROUGE, m2msql::enumTransform::SourceColor.CARMIN],\n" +
             "      GREEN: [m2msql::enumTransform::SourceColor.VERT],\n" +
             "      BLUE: [m2msql::enumTransform::SourceColor.BLEU]\n" +
             "   }\n" +
@@ -767,7 +768,7 @@ public class TestM2MSqlParity
             "${CONNECTION_TYPE} test::conn\n" +
             "{\n" +
             "  class: m2msql::enumTransform::S_Item;\n" +
-            "  url: 'data:application/json,{\"color\":\"ROUGE\"}';\n" +
+            "  url: '${URL}';\n" +
             "}\n" +
             "\n" +
             "###Runtime\n" +
@@ -786,12 +787,40 @@ public class TestM2MSqlParity
     private static final String ENUM_TRANSFORM_QUERY =
             "|m2msql::enumTransform::Item.all()->graphFetch(#{m2msql::enumTransform::Item{color}}#)->serialize(#{m2msql::enumTransform::Item{color}}#)";
 
-    private static final String ENUM_TRANSFORM_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":{\"color\":\"RED\"}}";
+    // Two source values mapping to one target value, a second target value, and a row with no colour.
+    private static final String ENUM_TRANSFORM_URL = "data:application/json,[{\"color\":\"ROUGE\"},{\"color\":\"CARMIN\"},{\"color\":\"VERT\"},{}]";
+
+    private static final String ENUM_TRANSFORM_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"color\":\"RED\"},{\"color\":\"RED\"},{\"color\":\"GREEN\"},{\"color\":null}]}";
 
     @Test
     void enumTransform()
     {
-        assertParity("enumTransform", ENUM_TRANSFORM_GRAMMAR, ENUM_TRANSFORM_QUERY, ENUM_TRANSFORM_EXPECTED);
+        assertParity("enumTransform", ENUM_TRANSFORM_GRAMMAR.replace("${URL}", ENUM_TRANSFORM_URL), ENUM_TRANSFORM_QUERY, ENUM_TRANSFORM_EXPECTED);
+    }
+
+    // A source value the enumeration mapping has no entry for is a hard failure on the Java path, and
+    // must not quietly become a null or a pass-through on the SQL path.
+    @Test
+    void enumTransformUnmatched()
+    {
+        String grammar = ENUM_TRANSFORM_GRAMMAR.replace("${URL}", "data:application/json,{\"color\":\"NOIR\"}");
+
+        assertThrows(RuntimeException.class, () -> execute(grammar.replace("${CONNECTION_TYPE}", "JsonModelConnection"), ENUM_TRANSFORM_QUERY));
+
+        SingleExecutionPlan sqlPlan = compileAndPlan(grammar.replace("${CONNECTION_TYPE}", "SqlModelConnection"), ENUM_TRANSFORM_QUERY);
+        assertPlanShape("enumTransformUnmatched", sqlPlan);
+        RuntimeException sqlFailure = assertThrows(RuntimeException.class, () -> runPlan(sqlPlan));
+        assertTrue(String.valueOf(rootCause(sqlFailure).getMessage()).contains("Unmatched enum source value for property color"), "unexpected SQL-path failure: " + rootCause(sqlFailure));
+    }
+
+    private static Throwable rootCause(Throwable t)
+    {
+        Throwable cause = t;
+        while (cause.getCause() != null && cause.getCause() != cause)
+        {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 
     private static final String EXPLODE_MAPPING_GRAMMAR =

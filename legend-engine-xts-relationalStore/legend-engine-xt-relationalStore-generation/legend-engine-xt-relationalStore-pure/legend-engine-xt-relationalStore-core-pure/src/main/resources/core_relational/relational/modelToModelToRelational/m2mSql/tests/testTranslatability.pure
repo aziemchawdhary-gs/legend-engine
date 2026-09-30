@@ -66,6 +66,15 @@ Class meta::relational::m2mSql::tests::nestedFilter::S_Person
   address: meta::relational::m2mSql::tests::nestedFilter::S_Address[0..1];
 }
 
+Class meta::relational::m2mSql::tests::nestedEnumTransform::Holder
+{
+  item: meta::relational::m2mSql::tests::enumTransform::Item[0..1];
+}
+Class meta::relational::m2mSql::tests::nestedEnumTransform::S_Holder
+{
+  item: meta::relational::m2mSql::tests::enumTransform::S_Item[0..1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -382,6 +391,26 @@ Mapping meta::relational::m2mSql::tests::enumTransform::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::nestedEnumTransform::TestMapping
+(
+  *meta::relational::m2mSql::tests::nestedEnumTransform::Holder: Pure
+  {
+    ~src meta::relational::m2mSql::tests::nestedEnumTransform::S_Holder
+    item: $src.item
+  }
+  *meta::relational::m2mSql::tests::enumTransform::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::enumTransform::S_Item
+    color: EnumerationMapping colorMapping : $src.color
+  }
+  meta::relational::m2mSql::tests::enumTransform::TargetColor: EnumerationMapping colorMapping
+  {
+    RED: [meta::relational::m2mSql::tests::enumTransform::SourceColor.ROUGE],
+    GREEN: [meta::relational::m2mSql::tests::enumTransform::SourceColor.VERT],
+    BLUE: [meta::relational::m2mSql::tests::enumTransform::SourceColor.BLEU]
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::explodeMapping::TestMapping
 (
   *meta::relational::m2mSql::tests::explodeMapping::Tag: Pure
@@ -620,15 +649,14 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNestedMappingFilterI
   assertEquals('mapping filter not yet translated', $result.reason->orElse('<none>'));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::enumTransform::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::enumTransform::Item)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::enumTransform::Item{color}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable);
-  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('enumeration'), | 'expected reason to mention enumeration, got: ' + $result.reason->orElse('<none>'));
+  assert($result.translatable, | 'expected a root-level to-one enumeration transformer to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testExplodePropertyMappingIsNotTranslatable():Boolean[1]
@@ -925,4 +953,16 @@ function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationLiteralIs
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable);
   assertEquals('unsupported mapping filter: unsupported function in transform: extractEnumValue', $result.reason->orElse('<none>'));
+}
+
+// Below the root the leaf reaches the outer query as JSON, not as the scalar the CASE compares against.
+function <<test.Test>> meta::relational::m2mSql::tests::testNestedEnumTransformerIsNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::nestedEnumTransform::TestMapping;
+  let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::nestedEnumTransform::Holder)->cast(@PureInstanceSetImplementation)->toOne();
+  let tree    = #{meta::relational::m2mSql::tests::nestedEnumTransform::Holder{item{color}}}#->cast(@RootGraphFetchTree<Any>);
+
+  let result = canPlanM2MSql($setImpl, $tree, $mapping);
+  assertFalse($result.translatable);
+  assertEquals('enumeration transformer not yet translated', $result.reason->orElse('<none>'));
 }

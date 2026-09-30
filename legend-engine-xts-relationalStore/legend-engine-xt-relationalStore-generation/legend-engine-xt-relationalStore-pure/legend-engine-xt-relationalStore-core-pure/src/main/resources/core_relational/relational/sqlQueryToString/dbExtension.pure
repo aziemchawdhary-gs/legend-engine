@@ -1694,6 +1694,7 @@ Enum meta::relational::functions::sqlQueryToString::DynaFunctionRegistry
   size,
   split,
   splitPart,
+  sqlError,
   sqlFalse,
   sqlNull,
   sqlTrue,
