@@ -7,11 +7,12 @@
 
 > **Design & plan:**
 > [`docs/superpowers/specs/2026-08-17-m2m-sql-execution-design.md`](../../superpowers/specs/2026-08-17-m2m-sql-execution-design.md) (spec) |
-> [`docs/superpowers/plans/2026-08-17-m2m-sql-execution-phase1.md`](../../superpowers/plans/2026-08-17-m2m-sql-execution-phase1.md) (phase 0–1 implementation plan, authoritative where it and the spec differ)
+> [`docs/superpowers/plans/2026-08-17-m2m-sql-execution-phase1.md`](../../superpowers/plans/2026-08-17-m2m-sql-execution-phase1.md) (phase 0–1 implementation plan) |
+> [`docs/superpowers/plans/2026-09-03-m2m-sql-execution-phase2.md`](../../superpowers/plans/2026-09-03-m2m-sql-execution-phase2.md) (phase 2 implementation plan) — the plans are authoritative where they and the spec differ
 
-> **Status:** Phase 0–1 implemented (vertical slice, opt-in). Everything below describes what
-> ships today. The spec's Section 5/9 phasing table and the plan's "Deferred" section describe
-> what does not exist yet — see [Phase-2 roadmap](#phase-2-roadmap) at the end of this document.
+> **Status:** Phases 0–2 implemented (opt-in). Everything below describes what ships today. What
+> does not exist yet is listed in the [roadmap](#9-roadmap-phase-3-and-later) at the end of this
+> document.
 
 ---
 
@@ -35,6 +36,8 @@ warehouse dialects, remove runtime `javac`) — is in the design spec, Sections 
 Phase 1 is a vertical slice: one connection element, one query shape
 (`ClassName.all()->graphFetch(#{...}#)->serialize(#{...}#)`), a conservative translatability
 whitelist, and a parity harness proving byte-identical output against the existing Java path.
+Phase 2 widens the whitelist to the common mapping shapes — mapping and root filters,
+enumerations and enumeration mappings, explode mappings — without changing that structure.
 Anything the whitelist does not recognize falls back to the Java path unchanged — the SQL path
 is additive and never changes behavior for existing models.
 
@@ -151,19 +154,26 @@ without this extension registered. The checks, in the order `m2mSqlCollapseRejec
 3. The platform node wraps exactly one child, and it is a `StoreMappingGlobalGraphFetchExecutionNode`.
 4. The global node has no cross-store children (`children`/`xStorePropertyMapping` empty) — the
    whole M2M cluster must be a single store.
-5. The global node's tree is a `RoutedRootGraphFetchTree` whose target tree structurally equals
+5. The global node's tree is a `RoutedRootGraphFetchTree` whose target tree structurally matches
    the `serialize` call's own tree (`sameTreeShape` — compares class, property names/aliases,
    and recursion, because the two trees print differently: one is routed, one is a plain
-   literal).
+   literal). One difference is tolerated, at the root level only: primitive leaves the fetch tree
+   has and the serialize tree does not. The router adds the properties a root `filter()` reads
+   to the fetch tree, and fetching more than is serialized does not change the document. The SQL
+   document is projected from the **serialize** tree for the same reason.
 6. The root set implementation is exactly one `PureInstanceSetImplementation`, and none of the
-   target-tree classes carry constraints (constraint checking is not yet translated).
+   target-tree classes — or their superclasses — carry constraints (constraint checking is not
+   yet translated). Skipped when the reader was built with `enableConstraints = false`: the Java
+   path checks nothing then either.
 7. The local graph fetch node is a plain `InMemoryRootGraphFetchExecutionNode` (not
-   `InMemoryCrossStoreGraphFetchExecutionNode`), with no `filter` and `checked == false`.
+   `InMemoryCrossStoreGraphFetchExecutionNode`) with `checked == false`. A root `filter` on it is
+   allowed only when `rewriteTargetFilterToSource` can re-express it over the source (Section 5);
+   that check runs after guard 9.
 8. It reads from exactly one `StoreStreamReadingExecutionNode`, whose `connection` is a
    `SqlModelConnection` and which is itself unchecked.
 9. `canPlanM2MSql(setImpl, targetTree, mapping)` (Section 5) returns `translatable = true`.
-10. None of the **source** classes carry constraints
-    (`m2mSqlSourceConstraintRejection`). The mirror of guard 6: on the Java path the source
+10. None of the **source** classes, or their superclasses, carry constraints
+    (`m2mSqlSourceConstraintRejection`) — again only when the reader has `enableConstraints`. The mirror of guard 6: on the Java path the source
     document is deserialized into real source instances and the stream reader enforces their
     classes' constraints, but the SQL path never materializes a source object, so the checks would
     silently stop running. The source classes are the classes of `calculateSourceTree(targetTree,
@@ -183,25 +193,56 @@ consults last. It is a **conservative whitelist**: a construct is treated as SQL
 only when it is positively recognized, never by trying-and-catching a failure. Anything not
 recognized returns a `reason` string and the plan falls back.
 
+Translated (phase 2 additions marked):
+
+- Primitive property transforms built from `$src`, primitive literals, property accesses and the
+  functions in `sqlTranslatableFunctionWhitelist()`; auto-mapped properties; to-one complex
+  properties whose transform is a plain source navigation; `String` collections.
+- *(phase 2)* A mapping-level `~filter` on the **root** set implementation, when its expression
+  passes the same whitelist. It becomes a `WHERE` in the inner query.
+- *(phase 2)* A root `filter()` on the query, when `rewriteTargetFilterToSource` can rewrite it:
+  every property access must be a **direct, primitive** property of the root target class mapped
+  by at most one plain property mapping (or auto-mapped); each is replaced by its source
+  transform, and the result must pass the whitelist. The filter may read properties the tree does
+  not fetch.
+- *(phase 2)* **Enumeration-typed** source properties, explicit or auto-mapped: extracted as
+  `VARCHAR`, the enum's name on both sides.
+- *(phase 2)* An `EnumerationMapping` **transformer** on a to-one property of the root set, whose
+  source values are all enumeration values, all strings or all integers. It becomes a `CASE` in
+  the outer document.
+- *(phase 2)* A single **explode** property mapping on the root set, when the tree selects it as a
+  leaf and its transform is `$src.<primitive collection>`. It becomes an `unnest` in the inner
+  query.
+
 Rejected (fall back to Java):
 
-- A mapping-level `~filter` on the root `PureInstanceSetImplementation` (`~filter` push-down is
-  phase 2).
+- A mapping-level `~filter` on a **nested** set implementation (its semantics on the Java graph
+  fetch path are unverified), or a root one whose expression is off the whitelist.
+- A root `filter()` that is not rewritable: navigation through a complex property
+  (`$p.address.city`), a property with an enumeration transformer or an explode mapping, any
+  variable other than the lambda's own parameter (query parameters included), or an
+  off-whitelist function.
 - `mappingClass` or any `localMappingProperty` (local mapping properties not yet translated).
 - `subTypeTrees` anywhere in the target tree (subtype graph fetch not yet translated).
 - A to-many **complex** property (`propertyTree.subTrees` non-empty and the property's
   multiplicity upper bound is not one) — the flat single-row JSON projection cannot express one
   object per source element; this must be rejected here rather than in `jsonProjection.pure`,
   which asserts instead of falling back.
+- A **non-`String` primitive collection** (`Integer[*]` and so on). A collection leaf is extracted
+  as the text of its JSON array, and the extract is typed by the element: only the `VARCHAR` one
+  accepts an array. The others fail at execution rather than at planning, so they are rejected
+  here.
 - A property with no `PurePropertyMapping` that also does not resolve via genuine
   auto-mapping (`isPropertyAutoMapped` — same-name/type pass-through, not merely an omitted
-  mapping).
-- An **enumeration-typed** source property, whether reached through an explicit transform or
-  through auto-mapping — the synthetic source store's semi-structured extraction only knows
-  primitive types and `fail`s hard (not a graceful rejection) on an `Enumeration`, so this must
-  be caught before synthesis runs.
-- Any `transformer` on a property mapping (enum transformers — `CASE` lowering is phase 2).
-- `explodeProperty == true` (explosion via `unnest` is phase 2).
+  mapping); an auto-mapped complex property whose nested class mapping cannot be resolved or is
+  itself untranslatable.
+- An enumeration **literal** (`Colour.RED`) anywhere in a transform or filter.
+- An enumeration transformer on a nested or to-many property (the value reaches the outer query
+  as JSON, not as a scalar the `CASE` can compare), or with mixed or other source-value types.
+- An explode mapping on a nested set, more than one on a set, one the tree does not select as a
+  leaf (the Java path multiplies the instances regardless, which the projection would not know to
+  do), or one whose transform is anything but a single source navigation to a primitive
+  collection.
 - A complex property's transform that is not a **plain source-navigation chain**
   (`isPlainSourceNavigation`: `$src`, `$src.address`, `$src.home.address` — a bare variable or a
   chain of `Property` accesses on one, nothing else, e.g. not `$src.address->toOne()`). The JSON
@@ -217,13 +258,15 @@ Rejected (fall back to Java):
   (`explainUntranslatableExpression`).
 
 **Extending the whitelist**: to translate a new function, add it to
-`sqlTranslatableFunctionWhitelist()` — currently exactly nine signatures, not a full
+`sqlTranslatableFunctionWhitelist()` — currently seventeen signatures, not a full
 type×operator matrix: `plus` over `String`, `Integer`, `Float`, and `Number`; `minus` over
 `Number` only; `times` over `Integer` and `Number`; `divide` over `Number` only (fixed
-`Number[1], Number[1] -> Float[1]` arity); and `toOne`. The entries so far are exactly what the
-parity corpus proves safe; extend only when a new translatable parity case demands it, and add
-that case to the parity harness rather than the fallback manifest. To translate a new mapping
-shape (e.g. `~filter`), add a case to `untranslatableReasons`/`rootLevelReasons` and to
+`Number[1], Number[1] -> Float[1]` arity); `toOne`; and, since phase 2, `and`, `or`, `not`,
+`equal`, `lessThan`, `lessThanEqual`, `greaterThan` and `greaterThanEqual` (the comparisons over
+`Number` only). The entries so far are exactly what the parity corpus and the Pure unit tests
+exercise; extend only when a new translatable parity case demands it, and add that case to the
+parity harness rather than the fallback manifest. To translate a new mapping shape, add a case
+to `untranslatableReasons`/`rootLevelReasons` and to
 `m2mSqlLocalNodeRejection`/`m2mSqlGlobalNodeRejection` in `collapse.pure` if the shape also needs
 a structural guard, then implement the corresponding SQL emission in `jsonProjection.pure` /
 `sourceSynthesis.pure`.
@@ -239,8 +282,8 @@ Two pieces, both existing machinery newly wired together rather than new SQL-gen
    semi-structured navigation over `data` (`extractFromSemiStructured` / dialect `->`), reusing
    the same dialect slot Snowflake/Databricks/Postgres/H2/DuckDB already implement for
    `Variant`/JSON columns — no new SQL-generation surface for the *source* side.
-2. **`jsonProjection.pure`**'s `buildM2MSqlQuery(setImpl, targetTree, connection, extensions,
-   debug): M2MSqlQuery { setupSqls: String[*]; sqlQuery: String[1]; }` walks the target graph
+2. **`jsonProjection.pure`**'s `buildM2MSqlQuery(setImpl, targetTree, rootFilters, connection,
+   extensions, debug): M2MSqlQuery { setupSqls: String[*]; sqlQuery: String[1]; }` walks the target graph
    fetch tree (`flattenTargetTree`), inlining each property mapping's transform lambda (composed
    over nested transforms by substituting the parent's expression for the nested lambda's `$src`)
    into an inner `project(...)` against the synthetic source mapping — this is the same
@@ -259,6 +302,27 @@ selected leaves null" from "object absent" — both flatten to SQL `NULL` column
 `sqlQueryPostProcessors` hook): `json_extract_string(data, '<sourcePath>') is not null`, and the
 outer projection wraps the nested `json_object(...)` call in a `CASE` on that column so an absent
 source object serializes as SQL `NULL` (omitted key) rather than a populated-but-null object.
+
+**Filters.** The mapping's `~filter` and the rewritten root `filter()` (`rootFilters`) are both
+boolean expressions over the root `$src`. `buildProjectExpression` applies one `->filter(...)` per
+entry between `getAll` and `project`, and `pureToSQLQuery` renders them as the inner query's
+`WHERE` over the semi-structured extracts. A root filter can read source properties nothing in the
+target tree maps from, so the source tree the synthetic store is built from is first widened with
+the filter's requirements (`ensureFunctionRequirementsFromLambda`).
+
+**Enumeration mappings.** The inner query projects the transform's raw result. The outer document
+wraps that column in a `CASE` (`m2mSqlEnumCaseReference`): one arm per source value (an
+enumeration value is compared by name), `null` for an absent value, and a terminal `error(...)`
+(the `sqlError` dynaFn) for a value the mapping has no entry for. DuckDB evaluates `error` only
+for a row that reaches it, so this mirrors the Java path's hard failure on an unmatched value.
+
+**Explode.** The exploded leaf is not projected. It is injected into the inner `SELECT`, through
+the same post-processor hook as the presence columns (`withInjectedColumns`), as
+`unnest(cast(json_extract(data, '$.<path>') as <element type>[]))` (the `unnestJsonArray` dynaFn).
+That yields one row — and so one document — per element, repeats the sibling columns, and yields
+no row for an empty or absent array. When the exploded leaf is all the tree selects, a constant
+`m2m__row` column is projected so `project` has something to produce; the document never refers
+to it.
 
 ## 7. Runtime: `SQLGraphSerializeExecutionNode`
 
@@ -318,9 +382,8 @@ asserts:
 
 ```json
 [
-  { "case": "mappingFilter",   "reason": "mapping filter not yet translated" },
-  { "case": "enumTransform",   "reason": "enumeration transformer not yet translated" },
-  { "case": "explodeMapping",  "reason": "explode property mapping not yet translated" }
+  { "case": "integerCollection",        "reason": "non-string primitive collection not yet translated: codes" },
+  { "case": "rootFilterDeepNavigation", "reason": "root filter is not translatable to the source" }
 ]
 ```
 
@@ -328,27 +391,48 @@ This mirrors the PCT-exclusions-manifest convention already used elsewhere in th
 (`docs/pct/expected-failures-howto.md`): the manifest makes the current coverage boundary
 explicit and reviewable, and growing coverage is a two-line diff — implement the new
 translation, delete the manifest entry, move the corpus case's assertions from "expect
-fallback" to "expect collapse + parity". As of phase 1, 5 of the 8 parity-corpus cases collapse
-and pass byte-parity; the remaining 3 are exactly the manifest's three entries.
+fallback" to "expect collapse + parity".
 
-## 9. Phase-2 roadmap
+The corpus as of phase 2 (17 cases, 15 collapsed):
+
+| Case | Exercises | Status |
+|---|---|---|
+| `simpleRename` | string concatenation transform | collapsed |
+| `computedPrimitive` | integer arithmetic | collapsed |
+| `nestedComplexToOne` | nested to-one object, absent object and absent optional leaf | collapsed |
+| `autoMapped` | property with no mapping | collapsed |
+| `primitiveCollection` | `String[*]` leaf | collapsed |
+| `integerCollection` | `Integer[*]` leaf | fallback |
+| `mappingFilter` | boolean `~filter` | collapsed |
+| `comparisonFilter` | `>=`, `==`, `!`, `&&` in a `~filter` | collapsed |
+| `rootFilter` | root `filter()` over a computed property and an unfetched one | collapsed |
+| `rootFilterDeepNavigation` | root `filter()` through a complex property | fallback |
+| `enumIdentity` | enumeration pass-through, absent value | collapsed |
+| `enumTransform` | enumeration mapping: several source values per target, absent value | collapsed |
+| `enumTransformUnmatched` | unmapped source value: both paths fail | collapsed |
+| `explodeMapping` | explode, exploded leaf only | collapsed |
+| `explodeMappingEmpty` | explode of an empty array: no documents | collapsed |
+| `explodeMappingSibling` | explode with a sibling property, empty array between two non-empty | collapsed |
+| `explodeInteger` | explode of an `Integer[*]` | collapsed |
+
+Two behaviours the corpus pins that are worth knowing: an enumeration source value with no entry
+in the enumeration mapping is an error on both paths, and an empty or absent exploded collection
+produces no document for that source row on both paths.
+
+## 9. Roadmap (phase 3 and later)
 
 Deferred, each currently falling back safely to the Java path via the Section 5 whitelist (see
-also spec Section 9 and the plan's "Deferred to the Phase-2 plan" section):
+also spec Section 9 and the phase-2 plan's "Deferred to the Phase-3 plan" section):
 
-- **Filter push-down**: mapping `~filter` and root `filter()` — the plain `ModelConnection` path
-  has zero push-down today, so this is the biggest single win; upgrades the whitelist and adds a
-  `WHERE` clause to the inner query.
-- **Enumeration mappings**: lower a property mapping's `transformer` to `CASE`, reusing
-  `chain.pure`'s existing `createNestedIfElseLambdaFunction` lowering of enum transformers,
-  rendered through `pureToSQLQuery` like everything else.
-- **Explosion** (`explodeProperty` / `*` mappings): via the `SemiStructuredArrayFlatten` dialect
-  slot (`unnest` / `LATERAL FLATTEN`), already implemented for source-side navigation.
+- **Non-string primitive collections**: needs a typed array extract (or a JSON pass-through)
+  instead of the scalar one; today only `String[*]` is translated.
+- **Wider filters**: root filters through complex properties, nested-set `~filter`, enumeration
+  literals, query parameters.
+- **Enumeration mappings and explode below the root**, and several explode mappings on one set.
 - **Union** (`OperationSetImplementation`): `UNION ALL` with per-branch set-id tagging — existing
   relational set-union machinery.
 - **To-many complex properties**: needs a JSON-aggregation projection (one object per source
-  element via `unnest` + array aggregation), not the current flat single-row shape — depends on
-  explosion support.
+  element via `unnest` + array aggregation), not the current flat single-row shape.
 - **Merge**: join of branch subqueries, validation lambda → join predicate, per-property
   `COALESCE`/priority — flagged in the spec as the riskiest item, intentionally last.
 - **Metamodel-level outer query** instead of the current string-wrap: today `buildM2MSqlQuery`
@@ -363,13 +447,13 @@ also spec Section 9 and the plan's "Deferred to the Phase-2 plan" section):
 - **Chains as CTE layers**, **checked/constraints** (`IChecked` envelope semantics), **cross-store**
   (`XStorePropertyMapping`), **TDS-over-M2M** (cheap follow-on once the transform is already
   relational — currently *asserted impossible* on a plain `ModelConnection`). On constraints
-  specifically: the collapse today only guards *target*-class constraints (Section 4, guard 6);
-  the equivalent guard for the *source* class is still missing —
-  `StoreStreamReadingExecutionNode.enableConstraints` is not yet consulted, so a constrained
-  source class silently loses its check on the SQL path (known gap, tracked for phase 2).
-- **Plan-time fallback telemetry**: the design spec's `LoggingEventType.M2M_SQL_PLAN_FALLBACK`
-  structured log event does not exist yet — phase 1 only prints the rejection reason under
-  `debug.debug`, via `print(...)`, not a structured/queryable log line.
+  specifically: both target- and source-class constraints are *guarded* (Section 4, guards 6 and
+  10 — a constrained class falls back), not translated.
+- **Plan-time fallback reason telemetry**: the rejection *reason* is still only printed under
+  `debug.debug`; carrying it into the plan needs a protocol addition. What exists since phase 2 is
+  the execution-time signal: the in-memory executor logs a structured
+  `M2M_SQL_JAVA_FALLBACK_EXECUTED` event (source class and URL scheme only) whenever a
+  `SqlModelConnection` query actually runs on the Java path.
 - **Server-config-driven extension wiring**: today `duckDBM2MSqlExtension` is unconditionally
   registered by SPI whenever the DuckDB module is on the classpath; making the collapse
   opt-in/out per server deployment (beyond "does the model use `SqlModelConnection`") is not
