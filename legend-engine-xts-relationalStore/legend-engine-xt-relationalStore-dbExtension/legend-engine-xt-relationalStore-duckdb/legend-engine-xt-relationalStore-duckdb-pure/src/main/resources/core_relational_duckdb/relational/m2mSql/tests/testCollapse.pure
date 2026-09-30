@@ -137,7 +137,7 @@ Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filte
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Filtered: Pure
   {
     ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Filtered
-    ~filter $src.active
+    ~filter $src.active && ($src.name->trim() == 'Jane')
     name: $src.name
   }
 )
@@ -259,8 +259,8 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assertEquals('select json_object(\'fullName\', "m2m_sub"."fullName") as "doc" from (select concat(json_extract_string("root".data, \'$.firstName\'), \' \', json_extract_string("root".data, \'$.lastName\')) as "fullName" from m2m_src_0 as "root") as "m2m_sub"', $node.sqlQuery);
 }
 
-// A mapping filter is on canPlanM2MSql's rejection list, so the plan must come out exactly as the
-// M2M store contract built it.
+// The mapping filter calls a function off canPlanM2MSql's whitelist, so the plan must come out
+// exactly as the M2M store contract built it.
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testUntranslatableStaysOnJavaPath():Boolean[1]
 {
   let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
@@ -270,7 +270,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
                meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Filtered),
                $extensions
              );
-  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filtered mapping must not be collapsed');
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a mapping with an untranslatable filter must not be collapsed');
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
 }
 
