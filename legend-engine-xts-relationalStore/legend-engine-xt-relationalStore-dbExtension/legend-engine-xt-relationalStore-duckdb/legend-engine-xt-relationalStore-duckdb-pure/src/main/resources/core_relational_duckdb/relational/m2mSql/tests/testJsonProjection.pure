@@ -105,7 +105,29 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model
   color : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::TargetColor[1];
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Basket
+{
+  id    : String[1];
+  codes : Integer[*];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::BasketCode
+{
+  basket : String[1];
+  code   : Integer[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::explodeMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::BasketCode: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Basket
+    basket: $src.id,
+    code*: $src.codes
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::enumTransformMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Paint: Pure
@@ -293,4 +315,26 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let q       = buildM2MSqlQuery($setImpl, #{Paint {color}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
   assertEquals('select json_object(\'color\', case when "m2m_sub"."color" is null then null else case when "m2m_sub"."color" = \'ROUGE\' then \'RED\' else case when "m2m_sub"."color" = \'CARMIN\' then \'RED\' else case when "m2m_sub"."color" = \'VERT\' then \'GREEN\' else error(\'Unmatched enum source value for property color\') end end end end) as "doc" from (select json_extract_string("root".data, \'$.color\') as "color" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// The exploded leaf is an `unnest` injected into the inner SELECT, typed by the collection's element;
+// its sibling is an ordinary projected column that repeats on every row the unnest yields.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testExplodeM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::explodeMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(BasketCode);
+  let q       = buildM2MSqlQuery($setImpl, #{BasketCode {basket, code}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals('select json_object(\'basket\', "m2m_sub"."basket", \'code\', "m2m_sub"."code") as "doc" from (select json_extract_string("root".data, \'$.id\') as "basket", unnest(cast(json_extract("root".data, \'$.codes\') as INTEGER[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// With nothing but the exploded leaf selected there is no column to project, so a constant is, under a
+// name the document does not use.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testExplodeOnlyM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::explodeMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(BasketCode);
+  let q       = buildM2MSqlQuery($setImpl, #{BasketCode {code}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals('select json_object(\'code\', "m2m_sub"."code") as "doc" from (select 1 as "m2m__row", unnest(cast(json_extract("root".data, \'$.codes\') as INTEGER[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }

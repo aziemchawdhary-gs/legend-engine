@@ -72,9 +72,9 @@ function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImple
 
 function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1]):String[*]
 {
-  let rootReasons = $setImpl->rootLevelReasons($isRoot);
+  let rootReasons = $setImpl->rootLevelReasons($isRoot)->concatenate($setImpl->meta::relational::m2mSql::explodeShapeReasons($tree, $isRoot));
   if($rootReasons->isNotEmpty(),
-     | $rootReasons,
+     | $rootReasons->at(0),
      | if($tree.subTypeTrees->isNotEmpty(),
           | ['subType graph fetch trees not yet translated'],
           | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping, $isRoot))
@@ -93,7 +93,13 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
      // so it has to be rejected here instead.
      | if($propertyTree.subTrees->isNotEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
           | ['to-many complex property not yet translated'],
-          | []
+          // A primitive collection is extracted as the text of its JSON array and re-parsed in the outer
+          // document. That extract is typed by the element, and only the VARCHAR one takes an array:
+          // `cast(json_extract(...) as INTEGER)` of `[1,2,3]` fails at execution, not at planning.
+          | if($propertyTree.subTrees->isEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($propertyTree.property.genericType.rawType != String),
+               | [('non-string primitive collection not yet translated: ' + $propertyTree.property.name->toOne())],
+               | []
+              )
          )
     );
 }
@@ -143,8 +149,8 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
               ),
           | if($transformerReasons->isNotEmpty(),
                | $transformerReasons,
-               | if($propertyMappings->exists(pm | $pm.explodeProperty == true),
-                    | ['explode property mapping not yet translated'],
+               | if($propertyMappings->exists(pm | $pm.explodeProperty == true) && !$propertyMappings->at(0).transform.expressionSequence->toOne()->meta::relational::m2mSql::isExplodableSourceCollection(),
+                    | ['explode property mapping is not a single source navigation to a primitive collection'],
                     {|
                       let transformReasons = $propertyMappings->map(pm | $pm.transform.expressionSequence->toOne()->meta::relational::m2mSql::explainUntranslatableExpression());
                       if($transformReasons->isNotEmpty(),
@@ -186,6 +192,47 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
     );
 }
 
+// An explode mapping turns one source row into one target instance per element of a source collection.
+// The SQL projection does that with a single `unnest` in the inner SELECT, which multiplies whole rows:
+// so it can only be the root set implementation's (a nested one would have to multiply a subtree under
+// one parent document), there can only be one (DuckDB zips several unnests, and what the Java path does
+// with several is not established), and the tree has to select it as a leaf -- an explode mapping the
+// tree leaves out still multiplies the instances on the Java path, which the projection would not know
+// to do.
+function <<access.private>> meta::relational::m2mSql::explodeShapeReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], isRoot:Boolean[1]):String[*]
+{
+  let exploded = $setImpl.propertyMappings->filter(pm | $pm->instanceOf(PurePropertyMapping))->cast(@PurePropertyMapping)->filter(pm | $pm.explodeProperty == true);
+  if($exploded->isEmpty(),
+     | [],
+     | if(!$isRoot,
+          | ['explode property mapping on a nested class mapping not yet translated'],
+          | if($exploded->size() != 1,
+               | ['more than one explode property mapping not yet translated'],
+               | if(!$tree.propertyTrees()->exists(pt | ($pt.property.name == $exploded->toOne().property.name) && $pt.subTrees->isEmpty()),
+                    | ['explode property mapping is not selected as a leaf of the graph fetch tree'],
+                    | []
+                   )
+              )
+         )
+    );
+}
+
+// `$src.<property>` and nothing more, where the property is a primitive collection: the one shape the
+// `unnest` of a JSON array extract is built from.
+function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollection(vs:ValueSpecification[1]):Boolean[1]
+{
+  $vs->match(
+  [
+    sfe:SimpleFunctionExpression[1] |
+      $sfe.func->instanceOf(Property)
+        && ($sfe.parametersValues->evaluateAndDeactivate()->size() == 1)
+        && $sfe.parametersValues->evaluateAndDeactivate()->toOne()->instanceOf(VariableExpression)
+        && $sfe.genericType.rawType->isNotEmpty()
+        && $sfe.genericType.rawType->toOne()->instanceOf(PrimitiveType),
+    v:ValueSpecification[1] | false
+  ]);
+}
+
 // An enumeration transformer is translated as a CASE over the transform's result in the outer document
 // (see jsonProjection.pure's m2mSqlEnumCaseReference), which needs that result to be one SQL scalar:
 // a to-one property of the root set implementation. A nested leaf reaches the outer query as JSON
@@ -196,7 +243,7 @@ function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(pro
   let transformers = $propertyMappings.transformer;
   if($transformers->isEmpty(),
      | [],
-     | if(!$isRoot || ($propertyMappings->size() != 1) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
+     | if(!$isRoot || ($propertyMappings->size() != 1) || $propertyMappings->exists(pm | $pm.explodeProperty == true) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
           | ['enumeration transformer not yet translated'],
           {|
             let sourceValues = $transformers->toOne()->cast(@EnumerationMapping<Any>).enumValueMappings.sourceValues;
