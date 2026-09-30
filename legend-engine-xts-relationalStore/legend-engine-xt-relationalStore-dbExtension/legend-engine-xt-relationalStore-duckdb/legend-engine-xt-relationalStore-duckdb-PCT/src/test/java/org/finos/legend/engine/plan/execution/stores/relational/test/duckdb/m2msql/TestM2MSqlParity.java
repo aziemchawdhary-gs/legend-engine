@@ -813,6 +813,105 @@ public class TestM2MSqlParity
         assertTrue(String.valueOf(rootCause(sqlFailure).getMessage()).contains("Unmatched enum source value for property color"), "unexpected SQL-path failure: " + rootCause(sqlFailure));
     }
 
+    // A primitive collection is only translated for strings, so this one stays on the Java path.
+    private static final String INTEGER_COLLECTION_GRAMMAR =
+            "Class m2msql::integerCollection::Item\n" +
+            "{\n" +
+            "   codes: Integer[*];\n" +
+            "}\n" +
+            "Class m2msql::integerCollection::S_Item\n" +
+            "{\n" +
+            "   codes: Integer[*];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::integerCollection::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::integerCollection::S_Item\n" +
+            "      codes: $src.codes\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::integerCollection::S_Item;\n" +
+            "  url: 'data:application/json,{\"codes\":[1,2,3]}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void integerCollection()
+    {
+        assertParity("integerCollection", INTEGER_COLLECTION_GRAMMAR,
+                "|m2msql::integerCollection::Item.all()->graphFetch(#{m2msql::integerCollection::Item{codes}}#)->serialize(#{m2msql::integerCollection::Item{codes}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"codes\":[1,2,3]}}");
+    }
+
+    // Nothing but the exploded leaf is selected, and its elements are not strings: the inner query has
+    // no other column to project, and the unnest has to be typed by the element.
+    private static final String EXPLODE_INTEGER_GRAMMAR =
+            "Class m2msql::explodeInteger::Code\n" +
+            "{\n" +
+            "   code: Integer[1];\n" +
+            "}\n" +
+            "Class m2msql::explodeInteger::S_Item\n" +
+            "{\n" +
+            "   codes: Integer[*];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::explodeInteger::Code: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::explodeInteger::S_Item\n" +
+            "      code* : $src.codes\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::explodeInteger::S_Item;\n" +
+            "  url: 'data:application/json,{\"codes\":[1,2,3]}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void explodeInteger()
+    {
+        assertParity("explodeInteger", EXPLODE_INTEGER_GRAMMAR,
+                "|m2msql::explodeInteger::Code.all()->graphFetch(#{m2msql::explodeInteger::Code{code}}#)->serialize(#{m2msql::explodeInteger::Code{code}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"code\":1},{\"code\":2},{\"code\":3}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;
@@ -826,10 +925,12 @@ public class TestM2MSqlParity
     private static final String EXPLODE_MAPPING_GRAMMAR =
             "Class m2msql::explodeMapping::Tag\n" +
             "{\n" +
+            "   item: String[1];\n" +
             "   name: String[1];\n" +
             "}\n" +
             "Class m2msql::explodeMapping::S_Item\n" +
             "{\n" +
+            "   id: String[1];\n" +
             "   tags: String[*];\n" +
             "}\n" +
             "\n" +
@@ -839,6 +940,7 @@ public class TestM2MSqlParity
             "   *m2msql::explodeMapping::Tag: Pure\n" +
             "   {\n" +
             "      ~src m2msql::explodeMapping::S_Item\n" +
+            "      item: $src.id,\n" +
             "      name* : $src.tags\n" +
             "   }\n" +
             ")\n" +
@@ -847,7 +949,7 @@ public class TestM2MSqlParity
             "${CONNECTION_TYPE} test::conn\n" +
             "{\n" +
             "  class: m2msql::explodeMapping::S_Item;\n" +
-            "  url: 'data:application/json,{\"tags\":[\"a\",\"b\",\"c\"]}';\n" +
+            "  url: '${URL}';\n" +
             "}\n" +
             "\n" +
             "###Runtime\n" +
@@ -871,6 +973,27 @@ public class TestM2MSqlParity
     @Test
     void explodeMapping()
     {
-        assertParity("explodeMapping", EXPLODE_MAPPING_GRAMMAR, EXPLODE_MAPPING_QUERY, EXPLODE_MAPPING_EXPECTED);
+        assertParity("explodeMapping", EXPLODE_MAPPING_GRAMMAR.replace("${URL}", "data:application/json,{\"id\":\"i1\",\"tags\":[\"a\",\"b\",\"c\"]}"), EXPLODE_MAPPING_QUERY, EXPLODE_MAPPING_EXPECTED);
+    }
+
+    // The only source row has nothing to explode, so there is no target instance at all.
+    @Test
+    void explodeMappingEmpty()
+    {
+        assertParity("explodeMappingEmpty", EXPLODE_MAPPING_GRAMMAR.replace("${URL}", "data:application/json,{\"id\":\"i1\",\"tags\":[]}"), EXPLODE_MAPPING_QUERY, "{\"builder\":{\"_type\":\"json\"},\"values\":[]}");
+    }
+
+    // A sibling property repeats on every exploded row; a source row with nothing to explode
+    // contributes none, in between two that do.
+    private static final String EXPLODE_MAPPING_SIBLING_QUERY =
+            "|m2msql::explodeMapping::Tag.all()->graphFetch(#{m2msql::explodeMapping::Tag{item,name}}#)->serialize(#{m2msql::explodeMapping::Tag{item,name}}#)";
+
+    @Test
+    void explodeMappingSibling()
+    {
+        assertParity("explodeMappingSibling",
+                EXPLODE_MAPPING_GRAMMAR.replace("${URL}", "data:application/json,[{\"id\":\"i1\",\"tags\":[\"a\",\"b\"]},{\"id\":\"i2\",\"tags\":[]},{\"id\":\"i3\",\"tags\":[\"c\"]}]"),
+                EXPLODE_MAPPING_SIBLING_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\",\"name\":\"a\"},{\"item\":\"i1\",\"name\":\"b\"},{\"item\":\"i3\",\"name\":\"c\"}]}");
     }
 }

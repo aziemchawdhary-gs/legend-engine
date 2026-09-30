@@ -289,6 +289,7 @@ function <<access.private>> meta::relational::functions::sqlQueryToString::duckD
     dynaFnToSql('toVariant',              $allStates,            ^ToSql(format='ifnull(to_json(%s), \'null\'::json)')),
     dynaFnToSql('toVariantList',          $allStates,            ^ToSql(format='list_value(%s)', transform={p:String[*] | $p->joinStrings(',')})),
     dynaFnToSql('toVariantObject',        $allStates,            ^ToSql(format='MAP {%s}', transform={p:String[*] | range(0, $p->size(), 2)->map(i | $p->at($i) + ': ' + $p->at($i + 1))->joinStrings(', ')})),
+    dynaFnToSql('unnestJsonArray',        $allStates,            ^ToSql(format='unnest(cast(json_extract(%s, %s) as %s[]))', transform={p:String[3] | [$p->at(0), $p->at(1), $p->at(2)->replace('\'', '')]})),
     dynaFnToSql('variantTo',              $allStates,            ^ToSql(format='%s', transform={p:String[2] | if($p->at(1)->startsWith('VARCHAR'), |'(%s->>\'$\')'->format($p->at(0)), |'cast(%s as %s)'->format($p))})),
     dynaFnToSql('keys',                   $allStates,            ^ToSql(format='map_keys(%s)')),
     dynaFnToSql('values',                 $allStates,            ^ToSql(format='map_values(%s)')),    

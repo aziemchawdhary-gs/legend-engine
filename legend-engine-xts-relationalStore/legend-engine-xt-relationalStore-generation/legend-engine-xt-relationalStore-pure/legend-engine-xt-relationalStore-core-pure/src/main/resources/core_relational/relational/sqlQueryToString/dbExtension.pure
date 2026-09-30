@@ -1300,6 +1300,7 @@ Enum meta::relational::functions::sqlQueryToString::DynaFunctionRegistry
   toVariant,
   toVariantList,
   toVariantObject,
+  unnestJsonArray,
   variantTo,
   toJson,
   today,

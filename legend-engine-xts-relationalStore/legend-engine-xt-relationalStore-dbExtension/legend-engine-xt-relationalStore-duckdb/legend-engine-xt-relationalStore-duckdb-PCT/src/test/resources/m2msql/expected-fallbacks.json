@@ -1,10 +1,10 @@
 [
   {
-    "case": "rootFilterDeepNavigation",
-    "reason": "root filter is not translatable to the source"
+    "case": "integerCollection",
+    "reason": "non-string primitive collection not yet translated: codes"
   },
   {
-    "case": "explodeMapping",
-    "reason": "explode property mapping not yet translated"
+    "case": "rootFilterDeepNavigation",
+    "reason": "root filter is not translatable to the source"
   }
 ]

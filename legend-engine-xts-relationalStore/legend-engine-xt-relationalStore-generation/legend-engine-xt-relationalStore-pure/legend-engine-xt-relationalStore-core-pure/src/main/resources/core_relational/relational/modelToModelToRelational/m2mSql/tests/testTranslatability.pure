@@ -100,6 +100,11 @@ Class meta::relational::m2mSql::tests::explodeMapping::S_Item
 {
   tags: String[*];
 }
+Class meta::relational::m2mSql::tests::explodeMapping::LabelledTag
+{
+  name: String[1];
+  label: String[1];
+}
 
 Class meta::relational::m2mSql::tests::localProperty::Person
 {
@@ -190,6 +195,15 @@ Class meta::relational::m2mSql::tests::primitiveCollection::Item
 Class meta::relational::m2mSql::tests::primitiveCollection::S_Item
 {
   tags: String[*];
+}
+
+Class meta::relational::m2mSql::tests::integerCollection::Item
+{
+  codes: Integer[*];
+}
+Class meta::relational::m2mSql::tests::integerCollection::S_Item
+{
+  codes: Integer[*];
 }
 
 Class meta::relational::m2mSql::tests::toManyComplex::Address
@@ -420,6 +434,35 @@ Mapping meta::relational::m2mSql::tests::explodeMapping::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::explodeComputed::TestMapping
+(
+  *meta::relational::m2mSql::tests::explodeMapping::Tag: Pure
+  {
+    ~src meta::relational::m2mSql::tests::explodeMapping::S_Item
+    name*: $src.tags->toOne()
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::explodeUnselected::TestMapping
+(
+  *meta::relational::m2mSql::tests::explodeMapping::LabelledTag: Pure
+  {
+    ~src meta::relational::m2mSql::tests::explodeMapping::S_Item
+    name*: $src.tags,
+    label: 'fixed'
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::explodeTwice::TestMapping
+(
+  *meta::relational::m2mSql::tests::explodeMapping::LabelledTag: Pure
+  {
+    ~src meta::relational::m2mSql::tests::explodeMapping::S_Item
+    name*: $src.tags,
+    label*: $src.tags
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::localProperty::TestMapping
 (
   *meta::relational::m2mSql::tests::localProperty::Person: Pure
@@ -487,6 +530,15 @@ Mapping meta::relational::m2mSql::tests::primitiveCollection::TestMapping
   {
     ~src meta::relational::m2mSql::tests::primitiveCollection::S_Item
     tags: $src.tags
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::integerCollection::TestMapping
+(
+  *meta::relational::m2mSql::tests::integerCollection::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::integerCollection::S_Item
+    codes: $src.codes
   }
 )
 
@@ -659,15 +711,14 @@ function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsTra
   assert($result.translatable, | 'expected a root-level to-one enumeration transformer to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testExplodePropertyMappingIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodePropertyMappingIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::explodeMapping::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::explodeMapping::Tag)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::explodeMapping::Tag{name}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable);
-  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('explode'), | 'expected reason to mention explode, got: ' + $result.reason->orElse('<none>'));
+  assert($result.translatable, | 'expected a single root-level explode of a primitive collection to be translatable, got reason: ' + $result.reason->orElse(''));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testLocalMappingPropertyIsNotTranslatable():Boolean[1]
@@ -965,4 +1016,39 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNestedEnumTransforme
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
   assertFalse($result.translatable);
   assertEquals('enumeration transformer not yet translated', $result.reason->orElse('<none>'));
+}
+
+function meta::relational::m2mSql::tests::explodeVerdict(mapping:Mapping[1], targetClass:Class<Any>[1], tree:RootGraphFetchTree<Any>[1]):meta::relational::m2mSql::M2MSqlTranslatability[1]
+{
+  canPlanM2MSql($mapping->rootClassMappingByClass($targetClass)->cast(@PureInstanceSetImplementation)->toOne(), $tree, $mapping);
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfComputedCollectionIsNotTranslatable():Boolean[1]
+{
+  let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::explodeComputed::TestMapping, meta::relational::m2mSql::tests::explodeMapping::Tag,
+                 #{meta::relational::m2mSql::tests::explodeMapping::Tag{name}}#->cast(@RootGraphFetchTree<Any>));
+  assertEquals('explode property mapping is not a single source navigation to a primitive collection', $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testTwoExplodeMappingsAreNotTranslatable():Boolean[1]
+{
+  let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::explodeTwice::TestMapping, meta::relational::m2mSql::tests::explodeMapping::LabelledTag,
+                 #{meta::relational::m2mSql::tests::explodeMapping::LabelledTag{name, label}}#->cast(@RootGraphFetchTree<Any>));
+  assertEquals('more than one explode property mapping not yet translated', $result.reason->orElse('<none>'));
+}
+
+// The Java path multiplies the instances whether or not the exploded property is fetched; the
+// projection only knows to when the tree selects it.
+function <<test.Test>> meta::relational::m2mSql::tests::testUnselectedExplodeMappingIsNotTranslatable():Boolean[1]
+{
+  let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::explodeUnselected::TestMapping, meta::relational::m2mSql::tests::explodeMapping::LabelledTag,
+                 #{meta::relational::m2mSql::tests::explodeMapping::LabelledTag{label}}#->cast(@RootGraphFetchTree<Any>));
+  assertEquals('explode property mapping is not selected as a leaf of the graph fetch tree', $result.reason->orElse('<none>'));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testNonStringPrimitiveCollectionIsNotTranslatable():Boolean[1]
+{
+  let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::integerCollection::TestMapping, meta::relational::m2mSql::tests::integerCollection::Item,
+                 #{meta::relational::m2mSql::tests::integerCollection::Item{codes}}#->cast(@RootGraphFetchTree<Any>));
+  assertEquals('non-string primitive collection not yet translated: codes', $result.reason->orElse('<none>'));
 }
