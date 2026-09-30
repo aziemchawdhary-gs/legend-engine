@@ -122,7 +122,26 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::
 {
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Priced
+{
+  amount : Number[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Priced
+{
+  amount : Number[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::pricedMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Priced: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Priced
+    amount: $src.amount
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::collapseMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Person: Pure
@@ -391,4 +410,31 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
 
   let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
   assertEquals('select json_object(\'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select "root".data->\'address\'->\'city\' as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root" where json_extract_string("root".data, \'$.name\') = \'Jane\') as "m2m_sub"', $node.sqlQuery);
+}
+
+// The synthetic source store has no extract type for Number; the collapse has to decline before it
+// gets there rather than fail plan generation.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testUnsupportedSourcePrimitiveStaysOnJavaPath():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Priced.all()->graphFetch(#{Priced {amount}}#)->serialize(#{Priced {amount}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::pricedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Priced),
+               $extensions
+             );
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a Number-typed source property must not be collapsed');
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
+}
+
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testRootFilterWithNestedObjectCollapses():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Employee.all()->filter(e | $e.name == 'Jane')->graphFetch(#{Employee {name, address {city}}}#)->serialize(#{Employee {name, address {city}}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::nestedMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Employee),
+               $extensions
+             );
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
 }

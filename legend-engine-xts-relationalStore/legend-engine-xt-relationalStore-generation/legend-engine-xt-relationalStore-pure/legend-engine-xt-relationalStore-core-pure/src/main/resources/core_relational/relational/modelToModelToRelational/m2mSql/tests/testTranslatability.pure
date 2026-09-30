@@ -75,6 +75,39 @@ Class meta::relational::m2mSql::tests::nestedEnumTransform::S_Holder
   item: meta::relational::m2mSql::tests::enumTransform::S_Item[0..1];
 }
 
+Class meta::relational::m2mSql::tests::review::Target
+{
+  text: String[1];
+  amount: Float[1];
+  tags: String[*];
+  color: meta::relational::m2mSql::tests::enumTransform::TargetColor[1];
+}
+Class meta::relational::m2mSql::tests::review::S_Target
+{
+  first: String[1];
+  last: String[1];
+  amounts: Float[*];
+  tags: String[*];
+  colorName: String[1];
+}
+Class meta::relational::m2mSql::tests::review::Inner
+{
+  label: String[1];
+}
+Class meta::relational::m2mSql::tests::review::Outer
+{
+  inner: meta::relational::m2mSql::tests::review::Inner[0..1];
+}
+Class meta::relational::m2mSql::tests::review::S_Inner
+{
+  a: String[1];
+  b: String[1];
+}
+Class meta::relational::m2mSql::tests::review::S_Outer
+{
+  inner: meta::relational::m2mSql::tests::review::S_Inner[0..1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -460,6 +493,82 @@ Mapping meta::relational::m2mSql::tests::explodeTwice::TestMapping
     ~src meta::relational::m2mSql::tests::explodeMapping::S_Item
     name*: $src.tags,
     label*: $src.tags
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::HiddenFunctionMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    text: $src.first + ' ' + $src.last->trim()
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::ConcatMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    text: $src.first + ' ' + $src.last,
+    tags: $src.tags
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::CollectionEqualityMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    ~filter $src.tags == 'a'
+    text: $src.first
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::ExplodeFloatMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    amount*: $src.amounts
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::ExplodeScalarMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    text*: $src.first
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::EnumOverStringMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    color: EnumerationMapping colorMapping : $src.colorName
+  }
+  meta::relational::m2mSql::tests::enumTransform::TargetColor: EnumerationMapping colorMapping
+  {
+    RED: [meta::relational::m2mSql::tests::enumTransform::SourceColor.ROUGE],
+    GREEN: [meta::relational::m2mSql::tests::enumTransform::SourceColor.VERT],
+    BLUE: [meta::relational::m2mSql::tests::enumTransform::SourceColor.BLEU]
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::review::NestedComputedMapping
+(
+  *meta::relational::m2mSql::tests::review::Outer: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Outer
+    inner: $src.inner
+  }
+  *meta::relational::m2mSql::tests::review::Inner: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Inner
+    label: $src.a + $src.b
   }
 )
 
@@ -882,7 +991,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testBareSourceComplexPro
 // An auto-mapped complex property (no PurePropertyMapping at all) with an untranslatable child must
 // still fall back with a reason, not slip past the gate and crash downstream in
 // flattenTargetTree/nestedSetImplementation.
-function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPropertyRecursesIntoChild():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testUnmappedComplexPropertyIsNotTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::autoMappedComplex::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMappedComplex::Person)->cast(@PureInstanceSetImplementation)->toOne();
@@ -892,11 +1001,10 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPro
 
   let tree   = #{meta::relational::m2mSql::tests::autoMappedComplex::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable, | 'expected an auto-mapped complex property with an untranslatable child to be rejected');
-  assert($result.reason->isNotEmpty() && $result.reason->toOne()->toLower()->contains('trim'), | 'expected the reason to name the untranslatable child transform, got: ' + $result.reason->orElse('<none>'));
+  assertEquals('unmapped complex property not yet translated: address', $result.reason->orElse('<none>'));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPropertyIsTranslatableWhenChildIs():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testUnmappedComplexPropertyWithTranslatableChildIsNotTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::autoMappedComplexTranslatable::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person)->cast(@PureInstanceSetImplementation)->toOne();
@@ -905,7 +1013,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAutoMappedComplexPro
 
   let tree   = #{meta::relational::m2mSql::tests::autoMappedComplexTranslatable::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assert($result.translatable, | 'expected an auto-mapped complex property whose child is translatable to be accepted, got reason: ' + $result.reason->orElse(''));
+  assertEquals('unmapped complex property not yet translated: address', $result.reason->orElse('<none>'));
 }
 
 function meta::relational::m2mSql::tests::rewriteRootFilter(filter:meta::pure::metamodel::function::LambdaFunction<Any>[1], mapping:Mapping[1], targetClass:Class<Any>[1]):meta::pure::metamodel::valuespecification::ValueSpecification[0..1]
@@ -1027,7 +1135,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfComputedCol
 {
   let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::explodeComputed::TestMapping, meta::relational::m2mSql::tests::explodeMapping::Tag,
                  #{meta::relational::m2mSql::tests::explodeMapping::Tag{name}}#->cast(@RootGraphFetchTree<Any>));
-  assertEquals('explode property mapping is not a single source navigation to a primitive collection', $result.reason->orElse('<none>'));
+  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection', $result.reason->orElse('<none>'));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testTwoExplodeMappingsAreNotTranslatable():Boolean[1]
@@ -1051,4 +1159,71 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNonStringPrimitiveCo
   let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::integerCollection::TestMapping, meta::relational::m2mSql::tests::integerCollection::Item,
                  #{meta::relational::m2mSql::tests::integerCollection::Item{codes}}#->cast(@RootGraphFetchTree<Any>));
   assertEquals('non-string primitive collection not yet translated: codes', $result.reason->orElse('<none>'));
+}
+
+function meta::relational::m2mSql::tests::reviewReason(mapping:Mapping[1], tree:RootGraphFetchTree<Any>[1]):String[1]
+{
+  meta::relational::m2mSql::tests::explodeVerdict($mapping, $tree.class, $tree).reason->orElse('<translatable>');
+}
+
+// `plus` holds its operands as the values of one InstanceValue; a function call among them has to be
+// seen by the whitelist like any other.
+function <<test.Test>> meta::relational::m2mSql::tests::testFunctionHiddenInPlusOperandIsNotTranslatable():Boolean[1]
+{
+  assertEquals('unsupported transform for property text: unsupported function in transform: trim',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::HiddenFunctionMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// The target property access sits inside `plus`'s operand collection and has to be rewritten there too.
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterInsidePlusOperandIsRewrittenToSource():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {t:meta::relational::m2mSql::tests::review::Target[1] | ($t.text + '!') == 'Jane Doe!'},
+                    meta::relational::m2mSql::tests::review::ConcatMapping,
+                    meta::relational::m2mSql::tests::review::Target);
+  assertEquals(['$src', 'first', '$src', 'last'], $rewritten->toOne()->meta::relational::m2mSql::tests::propertiesAndVariables());
+}
+
+// pureToSQLQuery asserts on an equality with a to-many side, so it must not get that far.
+function <<test.Test>> meta::relational::m2mSql::tests::testEqualityOverCollectionIsNotTranslatable():Boolean[1]
+{
+  assertEquals('unsupported mapping filter: equality over a collection is not translated',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::CollectionEqualityMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnCollectionPropertyIsNotRewritten():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {t:meta::relational::m2mSql::tests::review::Target[1] | $t.tags == 'a'},
+                    meta::relational::m2mSql::tests::review::ConcatMapping,
+                    meta::relational::m2mSql::tests::review::Target);
+  assertEmpty($rewritten);
+}
+
+// FLOAT[] is 32-bit in DuckDB; only the element types the parity corpus proves are exploded.
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfFloatCollectionIsNotTranslatable():Boolean[1]
+{
+  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::ExplodeFloatMapping, #{meta::relational::m2mSql::tests::review::Target{amount}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfScalarIsNotTranslatable():Boolean[1]
+{
+  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::ExplodeScalarMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// The Java path looks the transform's value up by its own type: a String never matches an enumeration
+// source value. Comparing by name in SQL would match where the Java path fails.
+function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerOverMismatchedTransformTypeIsNotTranslatable():Boolean[1]
+{
+  assertEquals('enumeration transformer source values do not match the type of the transform',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::EnumOverStringMapping, #{meta::relational::m2mSql::tests::review::Target{color}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// Below the root a leaf is read as JSON, which only a plain navigation leaves intact.
+function <<test.Test>> meta::relational::m2mSql::tests::testComputedPropertyOnNestedSetIsNotTranslatable():Boolean[1]
+{
+  assertEquals('computed property label on a nested class mapping not yet translated',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::NestedComputedMapping, #{meta::relational::m2mSql::tests::review::Outer{inner{label}}}#->cast(@RootGraphFetchTree<Any>)));
 }

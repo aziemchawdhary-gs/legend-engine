@@ -122,11 +122,7 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                       expressionSequence    = buildProjectExpression($srcClass, $projected, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters))
                     );
 
-  // A root filter can read source properties that nothing in the target tree maps from, which the
-  // calculated source tree then knows nothing about; the synthetic store only maps what the tree asks for.
-  let sourceTree = $rootFilters->fold({f, tree | $tree->ensureFunctionRequirementsFromLambda($srcClass, buildFilterLambda($srcClass, $f), [], false)},
-                                      $targetTree->calculateSourceTree($setImpl.parent, $extensions)->cast(@GraphFetchTree))->cast(@RootGraphFetchTree<Any>);
-  let source     = synthesizeSourceStore($srcClass, $sourceTree);
+  let source     = synthesizeSourceStore($srcClass, m2mSqlSourceTree($setImpl, $targetTree, $rootFilters, $extensions));
   let innerConn  = $connection->withInjectedColumns($source, $projection.presences, $projection.explodes);
   let plan       = meta::pure::executionPlan::executionPlan($queryLambda, $source.mapping, ^Runtime(connectionStores = ^ConnectionStore(element = $source.database, connection = $innerConn)), $extensions, $debug);
   let innerSql   = $plan.rootExecutionNode->meta::pure::executionPlan::allNodes($extensions)
@@ -140,6 +136,16 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
   let outerSql  = 'select ' + $docSql + ' as "' + m2mSqlDocumentColumnName() + '" from (' + $innerSql + ') as "' + m2mSqlSubQueryAlias() + '"';
 
   ^M2MSqlQuery(setupSqls = [$createSql, $insertSql], sqlQuery = $outerSql);
+}
+
+// The source properties the inner query reads, as a tree over the source class: what the target tree's
+// transforms need, plus what the root filters read. A root filter can read source properties that
+// nothing in the target tree maps from, and the synthetic store only maps what this tree asks for.
+function meta::relational::m2mSql::m2mSqlSourceTree(setImpl:PureInstanceSetImplementation[1], targetTree:RootGraphFetchTree<Any>[1], rootFilters:ValueSpecification[*], extensions:Extension[*]):RootGraphFetchTree<Any>[1]
+{
+  let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
+  $rootFilters->fold({f, tree | $tree->ensureFunctionRequirementsFromLambda($srcClass, buildFilterLambda($srcClass, $f), [], false)},
+                     $targetTree->calculateSourceTree($setImpl.parent, $extensions)->cast(@GraphFetchTree))->cast(@RootGraphFetchTree<Any>);
 }
 
 // The alias of the wrapping sub-query and the name of its single JSON column. Both are part of the

@@ -129,7 +129,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
                          // fully validated by m2mSqlLocalNodeRejection below regardless of this flag.
                          | if(meta::relational::m2mSql::classAndSupertypeConstraintsExist(meta::relational::m2mSql::treeClasses($routedTree->cast(@GraphFetchTree))) && $globalNode.localGraphFetchExecutionNode->meta::relational::m2mSql::m2mSqlReaderEnableConstraints(),
                               | 'constraints on the target classes are not yet translated',
-                              | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree, $extensions)
+                              | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree, $serializeTree->toOne()->cast(@RootGraphFetchTree<Any>), $extensions)
                              )
                         )
                    );
@@ -139,7 +139,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
     );
 }
 
-function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(localNode:LocalGraphFetchExecutionNode[1], routedTree:RoutedRootGraphFetchTree<Any>[1], extensions:meta::pure::extension::Extension[*]):String[0..1]
+function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(localNode:LocalGraphFetchExecutionNode[1], routedTree:RoutedRootGraphFetchTree<Any>[1], serializeTree:RootGraphFetchTree<Any>[1], extensions:meta::pure::extension::Extension[*]):String[0..1]
 {
   if(!$localNode->instanceOf(InMemoryRootGraphFetchExecutionNode) || $localNode->instanceOf(InMemoryCrossStoreGraphFetchExecutionNode),
      | 'local graph fetch node is not a plain in-memory root node',
@@ -162,7 +162,19 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
                               | $verdict.reason,
                               | if($inMemory.filter->isNotEmpty() && $inMemory->m2mSqlRootFilter($setImpl)->isEmpty(),
                                    | 'root filter is not translatable to the source',
-                                   | $setImpl->m2mSqlSourceConstraintRejection($routedTree->cast(@RootGraphFetchTree<Any>), $reader.enableConstraints, $extensions)
+                                   {|
+                                     let narrowing = $setImpl->m2mSqlSerializeTreeRejection($serializeTree, $routedTree->cast(@GraphFetchTree));
+                                     if($narrowing->isNotEmpty(),
+                                        | $narrowing,
+                                        {|
+                                          let sourceShape = $setImpl->meta::relational::m2mSql::m2mSqlSourceTree($serializeTree, $inMemory->m2mSqlRootFilter($setImpl), $extensions)->cast(@GraphFetchTree)->m2mSqlSourceTreeRejection();
+                                          if($sourceShape->isNotEmpty(),
+                                             | $sourceShape,
+                                             | $setImpl->m2mSqlSourceConstraintRejection($routedTree->cast(@RootGraphFetchTree<Any>), $reader.enableConstraints, $extensions)
+                                            );
+                                        }
+                                       );
+                                   }
                                   )
                              );
                          }
@@ -173,6 +185,43 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLocalNodeRejection(l
          );
      }
     );
+}
+
+// The document is projected from the serialize tree, which may select less at the root than the graph
+// fetch tree does (see sameTreeShape). That is only the same document when what it leaves out has no
+// effect beyond its own value: an explode mapping multiplies the instances whether or not its property
+// is serialized, and an enumeration mapping fails the whole query on a value it has no entry for. The
+// first is caught by gating the serialize tree itself (an explode mapping it does not select is a
+// rejection there); the second is checked here.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTreeRejection(setImpl:meta::external::store::model::PureInstanceSetImplementation[1], serializeTree:RootGraphFetchTree<Any>[1], routedTree:GraphFetchTree[1]):String[0..1]
+{
+  let verdict = meta::relational::m2mSql::canPlanM2MSql($setImpl, $serializeTree, $setImpl.parent);
+  let omitted = $routedTree.propertyTrees()->filter(y | !$serializeTree.propertyTrees()->exists(x | $x.property.name == $y.property.name));
+  if(!$verdict.translatable,
+     | $verdict.reason,
+     | if($omitted->exists(y | $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($y.property.name->toOne()).transformer->isNotEmpty()),
+          | 'graph fetch tree fetches an enumeration-mapped property the serialize tree omits',
+          | []
+         )
+    );
+}
+
+// The inner query reads the source document through the synthetic store, which can only extract the
+// property types it has an extract type for, by names that are plain identifiers (the JSON path is
+// built from them). Anything else is a fallback here rather than a failure during synthesis.
+function <<access.private>> meta::relational::m2mSql::m2mSqlSourceTreeRejection(sourceTree:GraphFetchTree[1]):String[0..1]
+{
+  $sourceTree.propertyTrees()->map(pt |
+    let name = $pt.property.name->toOne();
+    let type = $pt.property->functionReturnType().rawType->toOne();
+    if(!$name->matches('[A-Za-z_][A-Za-z0-9_]*'),
+       | 'source property name is not a plain identifier: ' + $name,
+       | if($type->instanceOf(DataType),
+            | if($type->meta::relational::m2mSql::isExtractableSourceType(), | [], | 'source property type not yet translated: ' + $name),
+            | $pt->cast(@GraphFetchTree)->m2mSqlSourceTreeRejection()
+           )
+      );
+  )->first();
 }
 
 // The query's root `filter()` re-expressed over the source, or [] when there is none or it is not
@@ -206,9 +255,11 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTree(node:P
 // compared directly.
 //
 // `allowExtraLeaves` lets `b` (the graph fetch tree) carry primitive leaves at this level that `a` (the
-// serialize tree) does not: the router adds the properties a root `filter()` reads to the fetch tree.
-// Fetching more than is serialized does not change the document, so those are ignored; it is only ever
-// passed for the root level, which is the only level a root filter is rewritten for.
+// serialize tree) does not: the router adds the properties a root `filter()` reads to the fetch tree,
+// and moves the ones it reads to the end. So properties are matched by name rather than by position;
+// the document's order is the serialize tree's, which is what it is projected from. Whether leaving a
+// fetched leaf out of the document is safe is m2mSqlSerializeTreeRejection's to decide. It is only
+// ever passed for the root level, which is the only level a root filter is rewritten for.
 function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1], allowExtraLeaves:Boolean[1]):Boolean[1]
 {
   let aProperties = $a.propertyTrees();
@@ -216,10 +267,12 @@ function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetch
   ($a.subTypeTrees->isEmpty() && $b.subTypeTrees->isEmpty())
     && ($a->m2mSqlTreeClass() == $b->m2mSqlTreeClass())
     && ($aProperties->size() == $bProperties->size())
-    && $aProperties->size()->range()->forAll(i |
-         let x = $aProperties->at($i);
-         let y = $bProperties->at($i);
-         ($x.property.name == $y.property.name) && ($x.alias == $y.alias) && sameTreeShape($x->cast(@GraphFetchTree), $y->cast(@GraphFetchTree), false);
+    && $aProperties->forAll(x |
+         $bProperties->filter(y | ($x.property.name == $y.property.name) && ($x.alias == $y.alias))->match(
+         [
+           y:PropertyGraphFetchTree[1] | sameTreeShape($x->cast(@GraphFetchTree), $y->cast(@GraphFetchTree), false),
+           y:PropertyGraphFetchTree[*] | false
+         ]);
        );
 }
 

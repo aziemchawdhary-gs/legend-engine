@@ -157,10 +157,13 @@ without this extension registered. The checks, in the order `m2mSqlCollapseRejec
 5. The global node's tree is a `RoutedRootGraphFetchTree` whose target tree structurally matches
    the `serialize` call's own tree (`sameTreeShape` — compares class, property names/aliases,
    and recursion, because the two trees print differently: one is routed, one is a plain
-   literal). One difference is tolerated, at the root level only: primitive leaves the fetch tree
-   has and the serialize tree does not. The router adds the properties a root `filter()` reads
-   to the fetch tree, and fetching more than is serialized does not change the document. The SQL
-   document is projected from the **serialize** tree for the same reason.
+   literal). Properties are matched by name, not position, and one difference is tolerated at the
+   root level only: primitive leaves the fetch tree has and the serialize tree does not. The
+   router adds the properties a root `filter()` reads to the fetch tree (and moves them to the
+   end). The SQL document is projected from the **serialize** tree for the same reason. A leaf
+   left out of the document is only harmless when it has no effect beyond its own value, so after
+   guard 9 the serialize tree is gated on its own (`m2mSqlSerializeTreeRejection`): an explode
+   mapping it does not select, or an omitted enumeration-mapped property, is a fallback.
 6. The root set implementation is exactly one `PureInstanceSetImplementation`, and none of the
    target-tree classes — or their superclasses — carry constraints (constraint checking is not
    yet translated). Skipped when the reader was built with `enableConstraints = false`: the Java
@@ -172,7 +175,11 @@ without this extension registered. The checks, in the order `m2mSqlCollapseRejec
 8. It reads from exactly one `StoreStreamReadingExecutionNode`, whose `connection` is a
    `SqlModelConnection` and which is itself unchecked.
 9. `canPlanM2MSql(setImpl, targetTree, mapping)` (Section 5) returns `translatable = true`.
-10. None of the **source** classes, or their superclasses, carry constraints
+10. The source tree the inner query reads (`m2mSqlSourceTree`: what the transforms need plus what
+    the root filter reads) only has properties the synthetic store can extract
+    (`m2mSqlSourceTreeRejection`): a supported primitive or enumeration type, and a name that is a
+    plain identifier.
+11. None of the **source** classes, or their superclasses, carry constraints
     (`m2mSqlSourceConstraintRejection`) — again only when the reader has `enableConstraints`. The mirror of guard 6: on the Java path the source
     document is deserialized into real source instances and the stream reader enforces their
     classes' constraints, but the SQL path never materializes a source object, so the checks would
@@ -196,23 +203,26 @@ recognized returns a `reason` string and the plan falls back.
 Translated (phase 2 additions marked):
 
 - Primitive property transforms built from `$src`, primitive literals, property accesses and the
-  functions in `sqlTranslatableFunctionWhitelist()`; auto-mapped properties; to-one complex
-  properties whose transform is a plain source navigation; `String` collections.
+  functions in `sqlTranslatableFunctionWhitelist()`; auto-mapped primitive properties; to-one
+  complex properties whose transform is a plain source navigation; `String` collections mapped
+  straight from a to-many `String` source property.
 - *(phase 2)* A mapping-level `~filter` on the **root** set implementation, when its expression
-  passes the same whitelist. It becomes a `WHERE` in the inner query.
+  passes the whitelist extended with the filter-only functions (`sqlTranslatableFilterFunctions()`:
+  `and`, `or`, `not`, `equal` and the numeric comparisons). It becomes a `WHERE` in the inner
+  query.
 - *(phase 2)* A root `filter()` on the query, when `rewriteTargetFilterToSource` can rewrite it:
-  every property access must be a **direct, primitive** property of the root target class mapped
+  every property access must be a **direct, to-one, primitive** property of the root target class mapped
   by at most one plain property mapping (or auto-mapped); each is replaced by its source
   transform, and the result must pass the whitelist. The filter may read properties the tree does
   not fetch.
 - *(phase 2)* **Enumeration-typed** source properties, explicit or auto-mapped: extracted as
   `VARCHAR`, the enum's name on both sides.
 - *(phase 2)* An `EnumerationMapping` **transformer** on a to-one property of the root set, whose
-  source values are all enumeration values, all strings or all integers. It becomes a `CASE` in
-  the outer document.
+  source values are of the transform's own type: values of its enumeration, strings or integers.
+  It becomes a `CASE` in the outer document.
 - *(phase 2)* A single **explode** property mapping on the root set, when the tree selects it as a
-  leaf and its transform is `$src.<primitive collection>`. It becomes an `unnest` in the inner
-  query.
+  leaf and its transform is `$src.<property>` for a to-many `String` or `Integer` property. It
+  becomes an `unnest` in the inner query.
 
 Rejected (fall back to Java):
 
@@ -222,6 +232,14 @@ Rejected (fall back to Java):
   (`$p.address.city`), a property with an enumeration transformer or an explode mapping, any
   variable other than the lambda's own parameter (query parameters included), or an
   off-whitelist function.
+- In a filter: an equality with a to-many side (`pureToSQLQuery` asserts on it), and a `not` over
+  anything that combines an equality with other conditions. `!(a == b)` alone is rendered
+  null-safely; inside a compound the equality is a plain `=`, `NULL` for an absent operand, and
+  `NOT NULL` is not the `true` the Java path evaluates.
+- A comparison or boolean function in a **property transform** (`isBoss: $src.title == 'Boss'`):
+  for an absent operand the Java path yields `false` and SQL `NULL`.
+- A function call, lambda or other non-whitelisted expression among the operands of `plus` or
+  `times` (they are the values of one `InstanceValue`, which the gate walks).
 - `mappingClass` or any `localMappingProperty` (local mapping properties not yet translated).
 - `subTypeTrees` anywhere in the target tree (subtype graph fetch not yet translated).
 - A to-many **complex** property (`propertyTree.subTrees` non-empty and the property's
@@ -232,17 +250,28 @@ Rejected (fall back to Java):
   as the text of its JSON array, and the extract is typed by the element: only the `VARCHAR` one
   accepts an array. The others fail at execution rather than at planning, so they are rejected
   here.
+- A leaf whose shape differs from its source's: a collection populated from a to-one source
+  property (or from anything but a plain navigation), and a to-one leaf whose transform reads a
+  source collection (`$src.names->toOne()`). The inner query extracts each source property by
+  that property's own shape.
+- A **computed** leaf on a nested class mapping (anything but a plain source navigation): below
+  the root a leaf is read as JSON, which a computation over it does not preserve.
 - A property with no `PurePropertyMapping` that also does not resolve via genuine
   auto-mapping (`isPropertyAutoMapped` — same-name/type pass-through, not merely an omitted
-  mapping); an auto-mapped complex property whose nested class mapping cannot be resolved or is
-  itself untranslatable.
+  mapping); and any **complex** property with no property mapping — the Java path only passes
+  data-typed properties through unmapped and leaves a complex one empty.
+- A source property whose type the synthetic store cannot extract (`Number`, `StrictTime`, …) or
+  whose name is not a plain identifier.
 - An enumeration **literal** (`Colour.RED`) anywhere in a transform or filter.
 - An enumeration transformer on a nested or to-many property (the value reaches the outer query
-  as JSON, not as a scalar the `CASE` can compare), or with mixed or other source-value types.
+  as JSON, not as a scalar the `CASE` can compare), or whose source values are not of the
+  transform's type (the Java path looks them up by type and never matches; a comparison by name
+  would).
 - An explode mapping on a nested set, more than one on a set, one the tree does not select as a
   leaf (the Java path multiplies the instances regardless, which the projection would not know to
-  do), or one whose transform is anything but a single source navigation to a primitive
-  collection.
+  do), or one whose transform is anything but a single source navigation to a to-many `String`
+  or `Integer` property (`FLOAT[]` and `DECIMAL[]` are narrower in DuckDB than the scalar
+  extracts).
 - A complex property's transform that is not a **plain source-navigation chain**
   (`isPlainSourceNavigation`: `$src`, `$src.address`, `$src.home.address` — a bare variable or a
   chain of `Property` accesses on one, nothing else, e.g. not `$src.address->toOne()`). The JSON
@@ -258,12 +287,12 @@ Rejected (fall back to Java):
   (`explainUntranslatableExpression`).
 
 **Extending the whitelist**: to translate a new function, add it to
-`sqlTranslatableFunctionWhitelist()` — currently seventeen signatures, not a full
-type×operator matrix: `plus` over `String`, `Integer`, `Float`, and `Number`; `minus` over
-`Number` only; `times` over `Integer` and `Number`; `divide` over `Number` only (fixed
-`Number[1], Number[1] -> Float[1]` arity); `toOne`; and, since phase 2, `and`, `or`, `not`,
-`equal`, `lessThan`, `lessThanEqual`, `greaterThan` and `greaterThanEqual` (the comparisons over
-`Number` only). The entries so far are exactly what the parity corpus and the Pure unit tests
+`sqlTranslatableFunctionWhitelist()` — nine signatures, not a full type×operator matrix: `plus`
+over `String`, `Integer`, `Float`, and `Number`; `minus` over `Number` only; `times` over
+`Integer` and `Number`; `divide` over `Number` only (fixed `Number[1], Number[1] -> Float[1]`
+arity); and `toOne`. Since phase 2 filters additionally admit
+`sqlTranslatableFilterFunctions()`: `and`, `or`, `not`, `equal`, `lessThan`, `lessThanEqual`,
+`greaterThan` and `greaterThanEqual` (the comparisons over `Number` only). The entries so far are exactly what the parity corpus and the Pure unit tests
 exercise; extend only when a new translatable parity case demands it, and add that case to the
 parity harness rather than the fallback manifest. To translate a new mapping shape, add a case
 to `untranslatableReasons`/`rootLevelReasons` and to
@@ -383,7 +412,12 @@ asserts:
 ```json
 [
   { "case": "integerCollection",        "reason": "non-string primitive collection not yet translated: codes" },
-  { "case": "rootFilterDeepNavigation", "reason": "root filter is not translatable to the source" }
+  { "case": "rootFilterDeepNavigation", "reason": "root filter is not translatable to the source" },
+  { "case": "negatedCompoundFilter",    "reason": "unsupported mapping filter: negation of an expression that combines an equality with other conditions" },
+  { "case": "booleanTransform",         "reason": "unsupported transform for property isBoss: unsupported function in transform: equal" },
+  { "case": "multiplicityCoercion",     "reason": "collection property aliases is not mapped from a to-many String source property" },
+  { "case": "unmappedComplex",          "reason": "unmapped complex property not yet translated: address" },
+  { "case": "explodeNarrowSerialize",   "reason": "explode property mapping is not selected as a leaf of the graph fetch tree" }
 ]
 ```
 
@@ -393,7 +427,7 @@ explicit and reviewable, and growing coverage is a two-line diff — implement t
 translation, delete the manifest entry, move the corpus case's assertions from "expect
 fallback" to "expect collapse + parity".
 
-The corpus as of phase 2 (17 cases, 15 collapsed):
+The corpus as of phase 2 (25 cases, 18 collapsed):
 
 | Case | Exercises | Status |
 |---|---|---|
@@ -405,6 +439,11 @@ The corpus as of phase 2 (17 cases, 15 collapsed):
 | `integerCollection` | `Integer[*]` leaf | fallback |
 | `mappingFilter` | boolean `~filter` | collapsed |
 | `comparisonFilter` | `>=`, `==`, `!`, `&&` in a `~filter` | collapsed |
+| `optionalEqualityFilter` | `==` in a `~filter` against an absent optional value | collapsed |
+| `negatedCompoundFilter` | `!(a == x && b == y)` with an absent optional value | fallback |
+| `booleanTransform` | a comparison as a property value | fallback |
+| `multiplicityCoercion` | collection from a scalar, scalar from a collection | fallback |
+| `unmappedComplex` | complex property with no property mapping (Java leaves it `null`) | fallback |
 | `rootFilter` | root `filter()` over a computed property and an unfetched one | collapsed |
 | `rootFilterDeepNavigation` | root `filter()` through a complex property | fallback |
 | `enumIdentity` | enumeration pass-through, absent value | collapsed |
@@ -414,6 +453,9 @@ The corpus as of phase 2 (17 cases, 15 collapsed):
 | `explodeMappingEmpty` | explode of an empty array: no documents | collapsed |
 | `explodeMappingSibling` | explode with a sibling property, empty array between two non-empty | collapsed |
 | `explodeInteger` | explode of an `Integer[*]` | collapsed |
+| `explodeComposite` | explode with a `~filter`, an absent array and a nested object | collapsed |
+| `explodeCompositeRootFilter` | the same with a root `filter()` | collapsed |
+| `explodeNarrowSerialize` | exploded property fetched but not serialized | fallback |
 
 Two behaviours the corpus pins that are worth knowing: an enumeration source value with no entry
 in the enumeration mapping is an error on both paths, and an empty or absent exploded collection
@@ -427,7 +469,12 @@ also spec Section 9 and the phase-2 plan's "Deferred to the Phase-3 plan" sectio
 - **Non-string primitive collections**: needs a typed array extract (or a JSON pass-through)
   instead of the scalar one; today only `String[*]` is translated.
 - **Wider filters**: root filters through complex properties, nested-set `~filter`, enumeration
-  literals, query parameters.
+  literals, query parameters, negated compound conditions, equality over collections.
+- **Boolean-valued and computed-below-the-root transforms**, and leaves whose multiplicity differs
+  from their source's.
+- **Unproven scalar types**: no parity case covers `Float`, `Decimal` or the date types yet, and
+  the `Integer` extract is a 32-bit `INTEGER` cast — a value above 2^31-1 fails at execution.
+  These collapse today; they need parity cases and, for `Integer`, a `BIGINT` extract.
 - **Enumeration mappings and explode below the root**, and several explode mappings on one set.
 - **Union** (`OperationSetImplementation`): `UNION ALL` with per-branch set-id tagging — existing
   relational set-union machinery.

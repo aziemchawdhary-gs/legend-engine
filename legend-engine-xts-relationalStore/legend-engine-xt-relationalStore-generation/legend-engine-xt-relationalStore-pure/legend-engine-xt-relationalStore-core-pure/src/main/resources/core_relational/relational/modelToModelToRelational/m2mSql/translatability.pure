@@ -56,7 +56,7 @@ function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImple
           | ['mapping filter not yet translated'],
           {|
             let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-            let reason   = $setImpl->meta::relational::m2mSql::mappingFilterOver(meta::relational::m2mSql::m2mSqlSourceVariable($srcClass))->toOne()->meta::relational::m2mSql::explainUntranslatableExpression();
+            let reason   = $setImpl->meta::relational::m2mSql::mappingFilterOver(meta::relational::m2mSql::m2mSqlSourceVariable($srcClass))->toOne()->meta::relational::m2mSql::explainUntranslatableFilterExpression();
             if($reason->isEmpty(), | [], | ('unsupported mapping filter: ' + $reason->toOne()));
           }
          )
@@ -116,47 +116,28 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                        ->cast(@PurePropertyMapping);
        let transformerReasons = meta::relational::m2mSql::enumTransformerReasons($propertyMappings, $propertyTree, $isRoot);
        if($propertyMappings->isEmpty(),
-          // A complex property with no PurePropertyMapping at all reaches jsonProjection.pure's own
-          // by-name auto-mapping (autoMappedSourceExpression / nestedSetImplementation's $pms->isEmpty()
-          // branch), which the M2M store contract's isPropertyAutoMapped does not recognize -- its
-          // complex-property case means "implicitly resolved *despite* an explicit mapping", not "no
-          // mapping at all". So a genuinely unmapped complex property has to be checked against the same
-          // resolution jsonProjection.pure performs, not against isPropertyAutoMapped, or it either gets
-          // rejected outright (dead functionality) or -- the bug this guards against -- accepted without
-          // ever looking at its subtree, which then asserts downstream instead of falling back.
+          // The Java path only passes a property through unmapped when it is data-typed; a complex
+          // property with no property mapping is left empty there, whatever the source class has under
+          // the same name, so there is nothing for the projection to build.
           | if($propertyTree.subTrees->isNotEmpty(),
-               {|
-                 let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-                 // An auto-mapped access is `$src.<name>`, itself a plain navigation, so only the
-                 // resolution and recursion below are new.
-                 if($srcClass->propertyByName($propertyTree.property.name->toOne())->isEmpty(),
-                    | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
-                    {|
-                      let nestedSetImpl = $mapping->rootClassMappingByClass($propertyTree.property.genericType.rawType->toOne()->cast(@Class<Any>));
-                      if($nestedSetImpl->isEmpty() || !$nestedSetImpl->toOne()->instanceOf(PureInstanceSetImplementation),
-                         | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
-                         | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne()->cast(@PureInstanceSetImplementation), $propertyTree->cast(@GraphFetchTree), $mapping, false)
-                        );
-                    }
-                   );
-               },
+               | [('unmapped complex property not yet translated: ' + $propertyTree.property.name->toOne())],
                | if(!$propertyTree.property->isPropertyAutoMapped($setImpl),
                     | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
                     // An enumeration-typed property is fine here: the synthetic source store extracts it as
                     // VARCHAR, which is the enum's name on both sides.
-                    | []
+                    | meta::relational::m2mSql::autoMappedLeafReasons($setImpl, $propertyTree)
                    )
               ),
           | if($transformerReasons->isNotEmpty(),
                | $transformerReasons,
                | if($propertyMappings->exists(pm | $pm.explodeProperty == true) && !$propertyMappings->at(0).transform.expressionSequence->toOne()->meta::relational::m2mSql::isExplodableSourceCollection(),
-                    | ['explode property mapping is not a single source navigation to a primitive collection'],
+                    | ['explode property mapping is not a single source navigation to a String or Integer collection'],
                     {|
                       let transformReasons = $propertyMappings->map(pm | $pm.transform.expressionSequence->toOne()->meta::relational::m2mSql::explainUntranslatableExpression());
                       if($transformReasons->isNotEmpty(),
                          | $transformReasons->map(r | 'unsupported transform for property ' + $propertyTree.property.name->toOne() + ': ' + $r),
                          | if($propertyTree.subTrees->isEmpty(),
-                              | [],
+                              | meta::relational::m2mSql::mappedLeafReasons($propertyMappings->at(0), $propertyTree, $isRoot),
                               {|
                                 // A complex property's transform has to be a plain chain of source property
                                 // accesses, because the SQL projection derives the subtree's presence check
@@ -192,6 +173,60 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
     );
 }
 
+// What a mapped primitive leaf's transform has to look like beyond being whitelisted, because the inner
+// query extracts each source property by that property's own shape:
+// - below the root a leaf is read as JSON (`data->'a'->'b'`), which only a plain navigation leaves intact;
+// - a collection leaf is the text of a JSON array, which only a to-many String source property yields;
+// - a to-one leaf must not read a source collection at all (`$src.names->toOne()` renders as the array).
+// An exploded leaf is exempt: isExplodableSourceCollection has already pinned its shape.
+function <<access.private>> meta::relational::m2mSql::mappedLeafReasons(propertyMapping:PurePropertyMapping[1], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
+{
+  let transform = $propertyMapping.transform.expressionSequence->toOne();
+  let name      = $propertyTree.property.name->toOne();
+  if($propertyMapping.explodeProperty == true,
+     | [],
+     | if(!$isRoot && !$transform->meta::relational::m2mSql::isPlainSourceNavigation(),
+          | [('computed property ' + $name + ' on a nested class mapping not yet translated')],
+          | if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
+               | if($transform->meta::relational::m2mSql::isPlainSourceNavigation() && !$transform.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($transform.genericType.rawType == String),
+                    | [],
+                    | [('collection property ' + $name + ' is not mapped from a to-many String source property')]
+                   ),
+               | if($transform->meta::relational::m2mSql::readsSourceCollection(),
+                    | [('property ' + $name + ' reads a source collection')],
+                    | []
+                   )
+              )
+         )
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::autoMappedLeafReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1]):String[*]
+{
+  let srcProperty = $setImpl.srcClass->toOne()->cast(@Class<Any>)->propertyByName($propertyTree.property.name->toOne());
+  if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($srcProperty->isEmpty() || $srcProperty->toOne().multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
+     | [('collection property ' + $propertyTree.property.name->toOne() + ' is not mapped from a to-many String source property')],
+     | []
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::readsSourceCollection(vs:ValueSpecification[1]):Boolean[1]
+{
+  $vs->meta::relational::m2mSql::anySubExpression(e | $e->instanceOf(SimpleFunctionExpression) && $e->cast(@SimpleFunctionExpression).func->instanceOf(Property) && !$e.multiplicity->meta::pure::functions::meta::hasToOneUpperBound());
+}
+
+// Whether the expression, or anything under it, satisfies `test`. A function taking a collection
+// (`plus`, `times`) holds its operands as the values of one InstanceValue, so those are walked too.
+function <<access.private>> meta::relational::m2mSql::anySubExpression(vs:ValueSpecification[1], test:Function<{ValueSpecification[1]->Boolean[1]}>[1]):Boolean[1]
+{
+  $test->eval($vs) || $vs->match(
+  [
+    sfe:SimpleFunctionExpression[1] | $sfe.parametersValues->evaluateAndDeactivate()->exists(p | $p->meta::relational::m2mSql::anySubExpression($test)),
+    i:InstanceValue[1]              | $i.values->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->exists(v | $v->meta::relational::m2mSql::anySubExpression($test)),
+    v:ValueSpecification[1]         | false
+  ]);
+}
+
 // An explode mapping turns one source row into one target instance per element of a source collection.
 // The SQL projection does that with a single `unnest` in the inner SELECT, which multiplies whole rows:
 // so it can only be the root set implementation's (a nested one would have to multiply a subtree under
@@ -217,8 +252,9 @@ function <<access.private>> meta::relational::m2mSql::explodeShapeReasons(setImp
     );
 }
 
-// `$src.<property>` and nothing more, where the property is a primitive collection: the one shape the
-// `unnest` of a JSON array extract is built from.
+// `$src.<property>` and nothing more, where the property is a to-many String or Integer: the one shape
+// the `unnest` of a JSON array extract is built from, and the two element types the parity corpus
+// proves (FLOAT[] and DECIMAL[] are narrower in DuckDB than their scalar extracts, for one).
 function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollection(vs:ValueSpecification[1]):Boolean[1]
 {
   $vs->match(
@@ -227,8 +263,8 @@ function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollecti
       $sfe.func->instanceOf(Property)
         && ($sfe.parametersValues->evaluateAndDeactivate()->size() == 1)
         && $sfe.parametersValues->evaluateAndDeactivate()->toOne()->instanceOf(VariableExpression)
-        && $sfe.genericType.rawType->isNotEmpty()
-        && $sfe.genericType.rawType->toOne()->instanceOf(PrimitiveType),
+        && !$sfe.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()
+        && $sfe.genericType.rawType->in([String, Integer]),
     v:ValueSpecification[1] | false
   ]);
 }
@@ -237,7 +273,9 @@ function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollecti
 // (see jsonProjection.pure's m2mSqlEnumCaseReference), which needs that result to be one SQL scalar:
 // a to-one property of the root set implementation. A nested leaf reaches the outer query as JSON
 // rather than as a scalar, and a to-many one as the text of a JSON array. The source values have to be
-// of one kind the CASE can compare against: enumeration values (by name), strings or integers.
+// of the transform's own type -- values of its enumeration (compared by name), strings or integers --
+// because that is how the Java path looks them up: a value of another type never matches there, where
+// a comparison by name or text would.
 function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(propertyMappings:PurePropertyMapping[*], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
 {
   let transformers = $propertyMappings.transformer;
@@ -246,10 +284,13 @@ function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(pro
      | if(!$isRoot || ($propertyMappings->size() != 1) || $propertyMappings->exists(pm | $pm.explodeProperty == true) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
           | ['enumeration transformer not yet translated'],
           {|
-            let sourceValues = $transformers->toOne()->cast(@EnumerationMapping<Any>).enumValueMappings.sourceValues;
-            if($sourceValues->forAll(v | $v->instanceOf(Enum)) || $sourceValues->forAll(v | $v->instanceOf(String)) || $sourceValues->forAll(v | $v->instanceOf(Integer)),
+            let sourceValues  = $transformers->toOne()->cast(@EnumerationMapping<Any>).enumValueMappings.sourceValues;
+            let transformType = $propertyMappings->toOne().transform.expressionSequence->toOne().genericType.rawType;
+            if($sourceValues->forAll(v | $v->instanceOf(Enum) && ($v->type() == $transformType))
+                 || (($transformType == String) && $sourceValues->forAll(v | $v->instanceOf(String)))
+                 || (($transformType == Integer) && $sourceValues->forAll(v | $v->instanceOf(Integer))),
                | [],
-               | ['enumeration transformer source values are not all enumeration values, all strings or all integers']
+               | ['enumeration transformer source values do not match the type of the transform']
               );
           }
          )
@@ -278,28 +319,57 @@ function meta::relational::m2mSql::resolveNestedSetImplementation(pm:PurePropert
 // Returns the reason the expression is NOT translatable, or [] when it is.
 function meta::relational::m2mSql::explainUntranslatableExpression(vs:ValueSpecification[1]):String[0..1]
 {
+  $vs->meta::relational::m2mSql::explainUntranslatable(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist());
+}
+
+// The same for a filter -- a mapping's ~filter or a rewritten root filter() -- which may also compare
+// and combine conditions. Those functions are kept out of property transforms: as a projected value,
+// a comparison against an absent operand is `false` on the Java path and NULL in SQL.
+function meta::relational::m2mSql::explainUntranslatableFilterExpression(vs:ValueSpecification[1]):String[0..1]
+{
+  $vs->meta::relational::m2mSql::explainUntranslatable(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()->concatenate(meta::relational::m2mSql::sqlTranslatableFilterFunctions()));
+}
+
+function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:ValueSpecification[1], whitelist:Function<Any>[*]):String[0..1]
+{
   $vs->match(
   [
     v:VariableExpression[1] |
       if($v.name == 'src', | [], | 'unsupported variable in transform: $' + $v.name),
     i:InstanceValue[1] |
       // Primitive literals only. An enumeration literal is a DataType too, but comparing one against
-      // the VARCHAR an enumeration-typed source property is extracted as is not established.
+      // the VARCHAR an enumeration-typed source property is extracted as is not established. A function
+      // taking a collection (`plus`, `times`) holds its operands as the values of one InstanceValue, so
+      // those are checked like any other operand.
       if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(PrimitiveType),
-         | [],
+         | $i.values->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->map(v | $v->meta::relational::m2mSql::explainUntranslatable($whitelist))->first(),
          | 'unsupported literal in transform'
         ),
     sfe:SimpleFunctionExpression[1] |
       // An enumeration-typed source property needs no special casing: the synthetic source store
       // extracts it as VARCHAR. An enumeration *transformer* is a different thing, handled by the caller.
-      if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
-         | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
-           if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
-         | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
-        ),
+      let params = $sfe.parametersValues->evaluateAndDeactivate();
+      if(!($sfe.func->instanceOf(Property) || $sfe.func->in($whitelist)),
+         | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath()),
+         // pureToSQLQuery asserts on an equality with a to-many side rather than translating it.
+         | if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | !$p.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
+              | 'equality over a collection is not translated',
+              // `!(a == b)` alone is rendered null-safely. Under anything else the equality is a plain
+              // `=`, NULL for an absent operand, and NOT of a NULL is not the `true` the Java path gets.
+              | if(($sfe.func == not_Boolean_1__Boolean_1_) && !$params->at(0)->meta::relational::m2mSql::isEquality() && $params->at(0)->meta::relational::m2mSql::anySubExpression(e | $e->meta::relational::m2mSql::isEquality()),
+                   | 'negation of an expression that combines an equality with other conditions',
+                   | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
+                  )
+             )
+        );,
     a:ValueSpecification[1] |
       'unsupported expression in transform'
   ]);
+}
+
+function <<access.private>> meta::relational::m2mSql::isEquality(vs:ValueSpecification[1]):Boolean[1]
+{
+  $vs->instanceOf(SimpleFunctionExpression) && ($vs->cast(@SimpleFunctionExpression).func == equal_Any_MANY__Any_MANY__Boolean_1_);
 }
 
 // True only for a bare chain of source property accesses rooted at a variable — `$src`,
@@ -335,7 +405,7 @@ function meta::relational::m2mSql::rewriteTargetFilterToSource(filter:LambdaFunc
   let rewritten  = if(($parameters->size() != 1) || ($body->size() != 1),
                       | [],
                       | $body->toOne()->meta::relational::m2mSql::rewriteTargetExpression($parameters->at(0).name, $setImpl, $srcVar));
-  if($rewritten->isEmpty() || $rewritten->toOne()->meta::relational::m2mSql::explainUntranslatableExpression()->isNotEmpty(),
+  if($rewritten->isEmpty() || $rewritten->toOne()->meta::relational::m2mSql::explainUntranslatableFilterExpression()->isNotEmpty(),
      | [],
      | $rewritten);
 }
@@ -360,20 +430,26 @@ function <<access.private>> meta::relational::m2mSql::rewriteTargetExpression(vs
               | [],
               | ^$sfe(parametersValues = $rewritten)->evaluateAndDeactivate());
          });,
-    i:InstanceValue[1] | $i,
+    // A function taking a collection (`plus`, `times`) holds its operands as the values of one
+    // InstanceValue; a target property access among them is rewritten like any other.
+    i:InstanceValue[1] |
+      let rewritten = $i.values->map(v | $v->match([e:ValueSpecification[1] | $e->meta::relational::m2mSql::rewriteTargetExpression($paramName, $setImpl, $srcVar), a:Any[1] | $a]));
+      if($rewritten->size() != $i.values->size(),
+         | [],
+         | ^$i(values = $rewritten)->evaluateAndDeactivate());,
     v:ValueSpecification[1] | []
   ]);
 }
 
 // A target property's source expression is only a faithful stand-in for the property's value when the
-// value is the transform's result as is: a primitive, mapped by exactly one plain property mapping (or
-// auto-mapped). An enumeration transformer or an explode mapping changes the value or the row it
+// value is the transform's result as is: a to-one primitive, mapped by exactly one plain property
+// mapping (or auto-mapped). An enumeration transformer or an explode mapping changes the value or the row it
 // belongs to after the transform has run.
 function <<access.private>> meta::relational::m2mSql::filterableSourceExpression(setImpl:PureInstanceSetImplementation[1], property:Property<Nil,Any|*>[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
 {
   let type = $property.genericType.rawType;
   let pms  = $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($property.name->toOne());
-  if($type->isEmpty() || !$type->toOne()->instanceOf(PrimitiveType) || ($pms->size() > 1) || $pms->exists(pm | $pm.transformer->isNotEmpty() || $pm.explodeProperty == true),
+  if($type->isEmpty() || !$type->toOne()->instanceOf(PrimitiveType) || !$property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || ($pms->size() > 1) || $pms->exists(pm | $pm.transformer->isNotEmpty() || $pm.explodeProperty == true),
      | [],
      | meta::relational::m2mSql::sourceExpressionForProperty($setImpl, $property.name->toOne(), $srcVar));
 }
@@ -383,8 +459,8 @@ function meta::relational::m2mSql::isSqlTranslatableExpression(vs:ValueSpecifica
   $vs->explainUntranslatableExpression()->isEmpty();
 }
 
-// Conservative by design: only arithmetic/string composition and boolean/comparison logic proven
-// safe by the parity corpus is listed here. Extend only when a new translatable parity case demands it.
+// Conservative by design: only arithmetic/string composition proven safe by the parity corpus is
+// listed here. Extend only when a new translatable parity case demands it.
 function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<Any>[*]
 {
   [
@@ -396,7 +472,14 @@ function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<A
     times_Integer_MANY__Integer_1_,
     times_Number_MANY__Number_1_,
     divide_Number_1__Number_1__Float_1_,
-    toOne_T_MANY__T_1_,
+    toOne_T_MANY__T_1_
+  ];
+}
+
+// Boolean and comparison logic, admitted in filters only (see explainUntranslatableFilterExpression).
+function meta::relational::m2mSql::sqlTranslatableFilterFunctions():Function<Any>[*]
+{
+  [
     and_Boolean_1__Boolean_1__Boolean_1_,
     or_Boolean_1__Boolean_1__Boolean_1_,
     not_Boolean_1__Boolean_1_,
