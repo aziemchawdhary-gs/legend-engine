@@ -134,13 +134,9 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                },
                | if(!$propertyTree.property->isPropertyAutoMapped($setImpl),
                     | [('property ' + $propertyTree.property.name->toOne() + ' does not resolve to a translatable mapping')],
-                    // Same hole as in explainUntranslatableExpression, on the branch that has no transform
-                    // lambda to walk: an auto-mapped enumeration property would reach the synthetic source
-                    // store's `fail` rather than falling back.
-                    | if($propertyTree.property.genericType.rawType->isNotEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(Enumeration),
-                         | [('enumeration-typed source property not yet translated: ' + $propertyTree.property.name->toOne())],
-                         | []
-                        )
+                    // An enumeration-typed property is fine here: the synthetic source store extracts it as
+                    // VARCHAR, which is the enum's name on both sides.
+                    | []
                    )
               ),
           | if($propertyMappings->exists(pm | $pm.transformer->isNotEmpty()),
@@ -215,22 +211,19 @@ function meta::relational::m2mSql::explainUntranslatableExpression(vs:ValueSpeci
     v:VariableExpression[1] |
       if($v.name == 'src', | [], | 'unsupported variable in transform: $' + $v.name),
     i:InstanceValue[1] |
-      if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(DataType),
+      // Primitive literals only. An enumeration literal is a DataType too, but comparing one against
+      // the VARCHAR an enumeration-typed source property is extracted as is not established.
+      if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(PrimitiveType),
          | [],
          | 'unsupported literal in transform'
         ),
     sfe:SimpleFunctionExpression[1] |
-      // An Enumeration-typed source property satisfies instanceOf(DataType), so the synthetic source
-      // store (meta::relational::m2mSql::pureTypeToSemiStructuredExtractType) takes its primitive
-      // branch and `fail`s hard on it. That is a loud crash, not a fallback, so it has to be caught
-      // here — this is distinct from an enumeration *transformer*, which is rejected by its caller.
-      if($sfe.func->instanceOf(Property) && $sfe.genericType.rawType->isNotEmpty() && $sfe.genericType.rawType->toOne()->instanceOf(Enumeration),
-         | 'enumeration-typed source property not yet translated: ' + $sfe.functionName->orElse($sfe.func->elementToPath()),
-         | if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
-              | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
-                if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
-              | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
-             )
+      // An enumeration-typed source property needs no special casing: the synthetic source store
+      // extracts it as VARCHAR. An enumeration *transformer* is a different thing, handled by the caller.
+      if($sfe.func->instanceOf(Property) || $sfe.func->in(meta::relational::m2mSql::sqlTranslatableFunctionWhitelist()),
+         | let subReasons = $sfe.parametersValues->map(p | $p->meta::relational::m2mSql::explainUntranslatableExpression());
+           if($subReasons->isEmpty(), | [], | $subReasons->at(0));,
+         | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath())
         ),
     a:ValueSpecification[1] |
       'unsupported expression in transform'

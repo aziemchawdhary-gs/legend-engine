@@ -672,6 +672,63 @@ public class TestM2MSqlParity
         assertParity("comparisonFilter", COMPARISON_FILTER_GRAMMAR, COMPARISON_FILTER_QUERY, COMPARISON_FILTER_EXPECTED);
     }
 
+    // The same enumeration on both sides, no enumeration mapping: the value passes through as its name.
+    // The second row has no colour at all.
+    private static final String ENUM_IDENTITY_GRAMMAR =
+            "Enum m2msql::enumIdentity::Color\n" +
+            "{\n" +
+            "   RED, GREEN\n" +
+            "}\n" +
+            "Class m2msql::enumIdentity::Item\n" +
+            "{\n" +
+            "   color: m2msql::enumIdentity::Color[0..1];\n" +
+            "}\n" +
+            "Class m2msql::enumIdentity::S_Item\n" +
+            "{\n" +
+            "   color: m2msql::enumIdentity::Color[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::enumIdentity::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::enumIdentity::S_Item\n" +
+            "      color: $src.color\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::enumIdentity::S_Item;\n" +
+            "  url: 'data:application/json,[{\"color\":\"RED\"},{}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String ENUM_IDENTITY_QUERY =
+            "|m2msql::enumIdentity::Item.all()->graphFetch(#{m2msql::enumIdentity::Item{color}}#)->serialize(#{m2msql::enumIdentity::Item{color}}#)";
+
+    private static final String ENUM_IDENTITY_EXPECTED = "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"color\":\"RED\"},{\"color\":null}]}";
+
+    @Test
+    void enumIdentity()
+    {
+        assertParity("enumIdentity", ENUM_IDENTITY_GRAMMAR, ENUM_IDENTITY_QUERY, ENUM_IDENTITY_EXPECTED);
+    }
+
     private static final String ENUM_TRANSFORM_GRAMMAR =
             "Enum m2msql::enumTransform::SourceColor\n" +
             "{\n" +

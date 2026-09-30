@@ -33,6 +33,16 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcPerso
   address   : SrcAddress[0..1];
 }
 
+Enum meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcColour
+{
+  RED, GREEN
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcItem
+{
+  colour : meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcColour[1];
+}
+
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testSimpleSourceSynthesisSql():Boolean[1]
 {
   let src = synthesizeSourceStore(SrcPerson, #{SrcPerson {firstName, age}}#);
@@ -77,4 +87,17 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let result = $plan->meta::pure::executionPlan::toString::planToString(relationalExtensions());
   assert($result->contains('m2m_src_0'), | 'expected the synthetic table in the plan, got: ' + $result);
   assert($result->contains('json_extract_string("root".data, \'$.firstName\')'), | 'expected semi-structured navigation, got: ' + $result);
+}
+
+// An enumeration value is its name in the source JSON, so it is read the way a String is.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testEnumerationSourceSynthesisSql():Boolean[1]
+{
+  let src = synthesizeSourceStore(SrcItem, #{SrcItem {colour}}#);
+  let sql = toSQLString(
+              |SrcItem.all()->project([s | $s.colour], ['colour']),
+              $src.mapping,
+              DatabaseType.DuckDB,
+              relationalExtensions()
+            );
+  assertEquals('select json_extract_string("root".data, \'$.colour\') as "colour" from m2m_src_0 as "root"', $sql);
 }
