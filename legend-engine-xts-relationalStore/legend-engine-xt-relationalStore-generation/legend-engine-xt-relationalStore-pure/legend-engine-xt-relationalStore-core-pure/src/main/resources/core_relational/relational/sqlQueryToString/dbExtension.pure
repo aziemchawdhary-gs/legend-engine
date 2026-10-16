@@ -1279,7 +1279,7 @@ function <<access.private>> meta::relational::functions::sqlQueryToString::proce
   // dialect leaves it as the store's own semi-structured type instead of unquoting it to
   // text. That is what a binding over a sub-document needs: rendered as text, the property
   // accesses the binding synthesises are handed a string where a document is required.
-  let supportedTypes = ['BOOLEAN', 'CHAR', 'VARCHAR', 'STRING', 'INTEGER', 'DECIMAL', 'FLOAT', 'DATE', 'DATETIME', 'TIMESTAMP', 'SEMISTRUCTURED'];
+  let supportedTypes = ['BOOLEAN', 'CHAR', 'VARCHAR', 'STRING', 'INTEGER', 'BIGINT', 'DECIMAL', 'FLOAT', 'DATE', 'DATETIME', 'TIMESTAMP', 'SEMISTRUCTURED'];
   // A trailing [] denotes an array of the named type. The element type has to be stated:
   // it is what lets a dialect cast the extraction to a typed list rather than leave it as
   // an untyped document, and it is not recoverable from anywhere else.

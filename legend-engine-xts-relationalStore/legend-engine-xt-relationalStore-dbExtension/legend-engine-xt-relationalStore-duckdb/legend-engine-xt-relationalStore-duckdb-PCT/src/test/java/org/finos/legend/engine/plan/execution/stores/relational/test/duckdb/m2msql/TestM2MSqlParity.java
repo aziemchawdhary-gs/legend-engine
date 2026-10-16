@@ -888,7 +888,7 @@ public class TestM2MSqlParity
             "${CONNECTION_TYPE} test::conn\n" +
             "{\n" +
             "  class: m2msql::explodeInteger::S_Item;\n" +
-            "  url: 'data:application/json,{\"codes\":[1,2,3]}';\n" +
+            "  url: 'data:application/json,{\"codes\":[1,2,3000000000]}';\n" +
             "}\n" +
             "\n" +
             "###Runtime\n" +
@@ -909,7 +909,58 @@ public class TestM2MSqlParity
     {
         assertParity("explodeInteger", EXPLODE_INTEGER_GRAMMAR,
                 "|m2msql::explodeInteger::Code.all()->graphFetch(#{m2msql::explodeInteger::Code{code}}#)->serialize(#{m2msql::explodeInteger::Code{code}}#)",
-                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"code\":1},{\"code\":2},{\"code\":3}]}");
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"code\":1},{\"code\":2},{\"code\":3000000000}]}");
+    }
+
+    // Pure's Integer is 64-bit: a value past 2^31-1 has to survive extraction and arithmetic.
+    private static final String LARGE_INTEGER_GRAMMAR =
+            "Class m2msql::largeInteger::Item\n" +
+            "{\n" +
+            "   id: Integer[1];\n" +
+            "   next: Integer[1];\n" +
+            "}\n" +
+            "Class m2msql::largeInteger::S_Item\n" +
+            "{\n" +
+            "   id: Integer[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::largeInteger::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::largeInteger::S_Item\n" +
+            "      id: $src.id,\n" +
+            "      next: $src.id + 1\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::largeInteger::S_Item;\n" +
+            "  url: 'data:application/json,{\"id\":3000000000}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void largeInteger()
+    {
+        assertParity("largeInteger", LARGE_INTEGER_GRAMMAR,
+                "|m2msql::largeInteger::Item.all()->graphFetch(#{m2msql::largeInteger::Item{id,next}}#)->serialize(#{m2msql::largeInteger::Item{id,next}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"id\":3000000000,\"next\":3000000001}}");
     }
 
     // `status` is optional and the first row has none. An equality against an absent value is false on

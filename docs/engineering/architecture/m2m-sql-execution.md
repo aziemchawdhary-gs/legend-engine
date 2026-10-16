@@ -260,8 +260,11 @@ Rejected (fall back to Java):
   auto-mapping (`isPropertyAutoMapped` — same-name/type pass-through, not merely an omitted
   mapping); and any **complex** property with no property mapping — the Java path only passes
   data-typed properties through unmapped and leaves a complex one empty.
-- A source property whose type the synthetic store cannot extract (`Number`, `StrictTime`, …) or
-  whose name is not a plain identifier.
+- A property whose type is not yet proven by the parity corpus, whether it is serialized or only
+  read (by a transform or a filter): only `String`, `Integer` (extracted as 64-bit `BIGINT`),
+  `Boolean` and enumerations are translated. `Float` (32-bit in a DuckDB `unnest`), `Decimal`
+  (`DECIMAL(18,3)`), the date types (DuckDB's own timestamp text), `Number` and `StrictTime` fall
+  back. So does a source property whose name is not a plain identifier.
 - An enumeration **literal** (`Colour.RED`) anywhere in a transform or filter.
 - An enumeration transformer on a nested or to-many property (the value reaches the outer query
   as JSON, not as a scalar the `CASE` can compare), or whose source values are not of the
@@ -427,12 +430,13 @@ explicit and reviewable, and growing coverage is a two-line diff — implement t
 translation, delete the manifest entry, move the corpus case's assertions from "expect
 fallback" to "expect collapse + parity".
 
-The corpus as of phase 2 (25 cases, 18 collapsed):
+The corpus as of phase 2 (26 cases, 19 collapsed):
 
 | Case | Exercises | Status |
 |---|---|---|
 | `simpleRename` | string concatenation transform | collapsed |
 | `computedPrimitive` | integer arithmetic | collapsed |
+| `largeInteger` | an `Integer` above 2^31-1, extracted and incremented | collapsed |
 | `nestedComplexToOne` | nested to-one object, absent object and absent optional leaf | collapsed |
 | `autoMapped` | property with no mapping | collapsed |
 | `primitiveCollection` | `String[*]` leaf | collapsed |
@@ -452,7 +456,7 @@ The corpus as of phase 2 (25 cases, 18 collapsed):
 | `explodeMapping` | explode, exploded leaf only | collapsed |
 | `explodeMappingEmpty` | explode of an empty array: no documents | collapsed |
 | `explodeMappingSibling` | explode with a sibling property, empty array between two non-empty | collapsed |
-| `explodeInteger` | explode of an `Integer[*]` | collapsed |
+| `explodeInteger` | explode of an `Integer[*]`, one element above 2^31-1 | collapsed |
 | `explodeComposite` | explode with a `~filter`, an absent array and a nested object | collapsed |
 | `explodeCompositeRootFilter` | the same with a root `filter()` | collapsed |
 | `explodeNarrowSerialize` | exploded property fetched but not serialized | fallback |
@@ -472,9 +476,9 @@ also spec Section 9 and the phase-2 plan's "Deferred to the Phase-3 plan" sectio
   literals, query parameters, negated compound conditions, equality over collections.
 - **Boolean-valued and computed-below-the-root transforms**, and leaves whose multiplicity differs
   from their source's.
-- **Unproven scalar types**: no parity case covers `Float`, `Decimal` or the date types yet, and
-  the `Integer` extract is a 32-bit `INTEGER` cast — a value above 2^31-1 fails at execution.
-  These collapse today; they need parity cases and, for `Integer`, a `BIGINT` extract.
+- **More scalar types**: `Float`, `Decimal` and the date types fall back today. Each needs a
+  parity case covering extraction and serialization (and, for `Float`/`Decimal`, the right
+  DuckDB extract type) before `provenPrimitiveTypes()` in `sourceSynthesis.pure` admits it.
 - **Enumeration mappings and explode below the root**, and several explode mappings on one set.
 - **Union** (`OperationSetImplementation`): `UNION ALL` with per-branch set-id tagging — existing
   relational set-union machinery.

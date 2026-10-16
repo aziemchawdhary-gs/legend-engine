@@ -384,7 +384,7 @@ function <<access.private>> meta::relational::functions::sqlQueryToString::duckD
       | 'cast(' + $elementAccess + ' as ' + $returnType->substring(0, $returnType->length() - 2)->duckDBSemiStructuredSqlType() + '[])', |
   // A string is unquoted rather than cast, so the JSON quotes do not survive into the value.
   if ($returnType->in(['CHAR', 'VARCHAR', 'STRING']), | format('json_extract_string(%s, \'%s\')', [$baseRelationalOp, $jsonPath]), |
-  if ($returnType->in(['DATE', 'DATETIME', 'TIMESTAMP', 'BOOLEAN', 'FLOAT', 'INTEGER']),
+  if ($returnType->in(['DATE', 'DATETIME', 'TIMESTAMP', 'BOOLEAN', 'FLOAT', 'INTEGER', 'BIGINT']),
       | 'cast(' + $elementAccess + ' as ' + $returnType->duckDBSemiStructuredSqlType() + ')', |
   $elementAccess)));
 }
