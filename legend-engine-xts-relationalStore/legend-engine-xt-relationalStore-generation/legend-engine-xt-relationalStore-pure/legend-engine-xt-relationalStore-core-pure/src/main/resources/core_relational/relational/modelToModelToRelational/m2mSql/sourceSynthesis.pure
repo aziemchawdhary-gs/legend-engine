@@ -138,12 +138,19 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
     );
 }
 
-// The source property types pureTypeToSemiStructuredExtractType has an extract type for. The collapse
-// checks the source tree against this before synthesis, so that an unsupported one is a fallback and
-// not the `fail` below.
+// The source property types the collapse lets the synthetic store extract: the ones the parity corpus
+// proves read and serialize as the Java path does. pureTypeToSemiStructuredExtractType knows more, but
+// Float (32-bit in DuckDB unnest), Decimal (DECIMAL(18,3)) and the date types (DuckDB's own timestamp
+// text) are not established to match, so a query reading one falls back. The collapse checks the
+// source tree against this before synthesis, which also keeps it clear of the `fail` below.
 function meta::relational::m2mSql::isExtractableSourceType(t:Type[1]):Boolean[1]
 {
-  $t->instanceOf(Enumeration) || $t->in([String, Integer, Float, Decimal, Boolean, StrictDate, Date, DateTime]);
+  $t->instanceOf(Enumeration) || $t->in(meta::relational::m2mSql::provenPrimitiveTypes());
+}
+
+function meta::relational::m2mSql::provenPrimitiveTypes():PrimitiveType[*]
+{
+  [String, Integer, Boolean];
 }
 
 function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredExtractType(t:Type[1]):String[1]
@@ -151,7 +158,8 @@ function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredEx
   // An enumeration value is its name in the source JSON, and its name again in the serialized target.
   if($t->instanceOf(Enumeration), | 'VARCHAR',
   | if($t == String,              | 'VARCHAR',
-  | if($t == Integer,             | 'INTEGER',
+  // Pure's Integer is 64-bit.
+  | if($t == Integer,             | 'BIGINT',
   | if($t == Float,               | 'FLOAT',
   | if($t == Decimal,             | 'DECIMAL',
   | if($t == Boolean,             | 'BOOLEAN',

@@ -362,7 +362,8 @@ function <<access.private>> meta::relational::functions::sqlQueryToString::duckD
   if ($returnType == 'BOOLEAN', | 'cast(' + $elementAccess + ' as BOOLEAN)', |
   if ($returnType == 'FLOAT', | 'cast(' + $elementAccess + ' as DOUBLE)', |
   if ($returnType == 'INTEGER', | 'cast(' + $elementAccess + 'as INTEGER)', |
-  $elementAccess)))));
+  if ($returnType == 'BIGINT', | 'cast(' + $elementAccess + ' as BIGINT)', |
+  $elementAccess))))));
 }
 
 function <<access.private>> meta::relational::functions::sqlQueryToString::duckDB::processTableFunctionParamPlaceHolder(r:RelationalOperationElement[1], sgc: SqlGenerationContext[1]): String[1]

@@ -52,7 +52,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
               DatabaseType.DuckDB,
               relationalExtensions()
             );
-  assertEquals('select json_extract_string("root".data, \'$.firstName\') as "firstName", cast(json_extract("root".data, \'$.age\')as INTEGER) as "age" from m2m_src_0 as "root"', $sql);
+  assertEquals('select json_extract_string("root".data, \'$.firstName\') as "firstName", cast(json_extract("root".data, \'$.age\') as BIGINT) as "age" from m2m_src_0 as "root"', $sql);
 }
 
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testNestedSourceSynthesisSql():Boolean[1]

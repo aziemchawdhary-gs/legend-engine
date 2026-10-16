@@ -108,6 +108,23 @@ Class meta::relational::m2mSql::tests::review::S_Outer
   inner: meta::relational::m2mSql::tests::review::S_Inner[0..1];
 }
 
+Class meta::relational::m2mSql::tests::scalarTypes::Item
+{
+  f: Float[1];
+  d: Decimal[1];
+  sd: StrictDate[1];
+  dt: DateTime[1];
+  s: String[1];
+}
+Class meta::relational::m2mSql::tests::scalarTypes::S_Item
+{
+  f: Float[1];
+  d: Decimal[1];
+  sd: StrictDate[1];
+  dt: DateTime[1];
+  s: String[1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -569,6 +586,19 @@ Mapping meta::relational::m2mSql::tests::review::NestedComputedMapping
   {
     ~src meta::relational::m2mSql::tests::review::S_Inner
     label: $src.a + $src.b
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::scalarTypes::TestMapping
+(
+  *meta::relational::m2mSql::tests::scalarTypes::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::scalarTypes::S_Item
+    f: $src.f,
+    d: $src.d,
+    sd: $src.sd,
+    dt: $src.dt,
+    s: $src.s
   }
 )
 
@@ -1200,10 +1230,10 @@ function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnCollecti
   assertEmpty($rewritten);
 }
 
-// FLOAT[] is 32-bit in DuckDB; only the element types the parity corpus proves are exploded.
+// FLOAT[] is 32-bit in DuckDB; a Float leaf is rejected for its type before the explode shape is looked at.
 function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfFloatCollectionIsNotTranslatable():Boolean[1]
 {
-  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection',
+  assertEquals('property type not yet translated: amount',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::ExplodeFloatMapping, #{meta::relational::m2mSql::tests::review::Target{amount}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
@@ -1226,4 +1256,16 @@ function <<test.Test>> meta::relational::m2mSql::tests::testComputedPropertyOnNe
 {
   assertEquals('computed property label on a nested class mapping not yet translated',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::NestedComputedMapping, #{meta::relational::m2mSql::tests::review::Outer{inner{label}}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// Float, Decimal and the date types have no parity case yet: how DuckDB extracts and serializes them
+// (32-bit floats, DECIMAL(18,3), its own timestamp text) is not established to match the Java path.
+function <<test.Test>> meta::relational::m2mSql::tests::testUnprovenScalarTypesAreNotTranslatable():Boolean[1]
+{
+  let mapping = meta::relational::m2mSql::tests::scalarTypes::TestMapping;
+  assertEquals('property type not yet translated: f',  meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{f}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('property type not yet translated: d',  meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{d}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('property type not yet translated: sd', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{sd}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('property type not yet translated: dt', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{dt}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('<translatable>',                      meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{s}}#->cast(@RootGraphFetchTree<Any>)));
 }

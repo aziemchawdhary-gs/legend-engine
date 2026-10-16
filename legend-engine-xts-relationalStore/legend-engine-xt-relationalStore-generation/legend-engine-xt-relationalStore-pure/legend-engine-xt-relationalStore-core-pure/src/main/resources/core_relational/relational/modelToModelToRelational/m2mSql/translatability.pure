@@ -93,6 +93,11 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
      // so it has to be rejected here instead.
      | if($propertyTree.subTrees->isNotEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
           | ['to-many complex property not yet translated'],
+          // A primitive leaf is serialized from its SQL value; only the types the parity corpus proves
+          // serialize as the Java path does (see isExtractableSourceType) are let through. This also
+          // covers a Float computed from Integers (`divide`).
+          | if($propertyTree.subTrees->isEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(PrimitiveType) && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenPrimitiveTypes()),
+               | [('property type not yet translated: ' + $propertyTree.property.name->toOne())],
           // A primitive collection is extracted as the text of its JSON array and re-parsed in the outer
           // document. That extract is typed by the element, and only the VARCHAR one takes an array:
           // `cast(json_extract(...) as INTEGER)` of `[1,2,3]` fails at execution, not at planning.
@@ -100,6 +105,7 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
                | [('non-string primitive collection not yet translated: ' + $propertyTree.property.name->toOne())],
                | []
               )
+             )
          )
     );
 }

@@ -303,7 +303,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let q       = buildM2MSqlQuery($setImpl, #{Member {name}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
   assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
-  assertEquals('select json_object(\'name\', "m2m_sub"."name") as "doc" from (select json_extract_string("root".data, \'$.name\') as "name" from m2m_src_0 as "root" where (cast(json_extract("root".data, \'$.active\') as BOOLEAN) and cast(json_extract("root".data, \'$.age\')as INTEGER) >= 18)) as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'name\', "m2m_sub"."name") as "doc" from (select json_extract_string("root".data, \'$.name\') as "name" from m2m_src_0 as "root" where (cast(json_extract("root".data, \'$.active\') as BOOLEAN) and cast(json_extract("root".data, \'$.age\') as BIGINT) >= 18)) as "m2m_sub"', $q.sqlQuery);
 }
 
 // The inner query projects the raw source value; the enumeration mapping is a CASE in the outer
@@ -325,7 +325,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(BasketCode);
   let q       = buildM2MSqlQuery($setImpl, #{BasketCode {basket, code}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
-  assertEquals('select json_object(\'basket\', "m2m_sub"."basket", \'code\', "m2m_sub"."code") as "doc" from (select json_extract_string("root".data, \'$.id\') as "basket", unnest(cast(json_extract("root".data, \'$.codes\') as INTEGER[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'basket\', "m2m_sub"."basket", \'code\', "m2m_sub"."code") as "doc" from (select json_extract_string("root".data, \'$.id\') as "basket", unnest(cast(json_extract("root".data, \'$.codes\') as BIGINT[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }
 
 // With nothing but the exploded leaf selected there is no column to project, so a constant is, under a
@@ -336,5 +336,5 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(BasketCode);
   let q       = buildM2MSqlQuery($setImpl, #{BasketCode {code}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
-  assertEquals('select json_object(\'code\', "m2m_sub"."code") as "doc" from (select 1 as "m2m__row", unnest(cast(json_extract("root".data, \'$.codes\') as INTEGER[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'code\', "m2m_sub"."code") as "doc" from (select 1 as "m2m__row", unnest(cast(json_extract("root".data, \'$.codes\') as BIGINT[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }

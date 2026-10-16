@@ -132,7 +132,28 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::
   amount : Number[1];
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Product
+{
+  name  : String[1];
+  price : Float[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Product
+{
+  name : String[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filteredByPriceMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Product: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Product
+    ~filter $src.price > 1.5
+    name: $src.name
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::pricedMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Priced: Pure
@@ -437,4 +458,19 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
                $extensions
              );
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
+}
+
+// The Float is never serialized, only read by the mapping filter -- it still has to be extracted, and
+// that extract is not yet proven, so the whole query stays on the Java path.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testUnprovenSourceTypeReadByFilterStaysOnJavaPath():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Product.all()->graphFetch(#{Product {name}}#)->serialize(#{Product {name}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filteredByPriceMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Product),
+               $extensions
+             );
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filter over a Float source property must not be collapsed');
+  assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
 }
