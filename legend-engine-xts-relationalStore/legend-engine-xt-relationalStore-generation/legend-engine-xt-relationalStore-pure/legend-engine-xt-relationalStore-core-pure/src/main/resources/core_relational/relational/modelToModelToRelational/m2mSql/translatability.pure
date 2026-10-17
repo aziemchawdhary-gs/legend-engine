@@ -88,6 +88,10 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
 {
   if($propertyTree.subType->isNotEmpty(),
      | ['subType graph fetch trees not yet translated'],
+     // Inner-query column names are derived from aliases, and the SQL generator drops an embedded `"`
+     // from an identifier, so `a"b` and `ab` would land on the same column.
+     | if($propertyTree.alias->isNotEmpty() && $propertyTree.alias->toOne()->contains('"'),
+          | [('alias containing a double quote not yet translated: ' + $propertyTree.alias->toOne())],
      // A to-many complex property needs one JSON object per source element; the flat single-row
      // projection in jsonProjection.pure cannot express that and asserts rather than falling back,
      // so it has to be rejected here instead.
@@ -107,6 +111,7 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
               )
              )
          )
+        )
     );
 }
 
@@ -449,15 +454,18 @@ function <<access.private>> meta::relational::m2mSql::rewriteTargetExpression(vs
 
 // A target property's source expression is only a faithful stand-in for the property's value when the
 // value is the transform's result as is: a to-one primitive, mapped by exactly one plain property
-// mapping (or auto-mapped). An enumeration transformer or an explode mapping changes the value or the row it
-// belongs to after the transform has run.
+// mapping, or auto-mapped the way the M2M store contract auto-maps (by name and type: an unmapped
+// property whose same-named source property has another type is empty on the target). An enumeration
+// transformer or an explode mapping changes the value or the row it belongs to after the transform has run.
 function <<access.private>> meta::relational::m2mSql::filterableSourceExpression(setImpl:PureInstanceSetImplementation[1], property:Property<Nil,Any|*>[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
 {
   let type = $property.genericType.rawType;
   let pms  = $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($property.name->toOne());
   if($type->isEmpty() || !$type->toOne()->instanceOf(PrimitiveType) || !$property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || ($pms->size() > 1) || $pms->exists(pm | $pm.transformer->isNotEmpty() || $pm.explodeProperty == true),
      | [],
-     | meta::relational::m2mSql::sourceExpressionForProperty($setImpl, $property.name->toOne(), $srcVar));
+     | if($pms->isEmpty() && !$property->isPropertyAutoMapped($setImpl),
+          | [],
+          | meta::relational::m2mSql::sourceExpressionForProperty($setImpl, $property.name->toOne(), $srcVar)));
 }
 
 function meta::relational::m2mSql::isSqlTranslatableExpression(vs:ValueSpecification[1]):Boolean[1]

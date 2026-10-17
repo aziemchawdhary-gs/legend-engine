@@ -67,7 +67,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assertEquals('select "root".data->\'address\'->\'street\' as "street" from m2m_src_0 as "root"', $sql);
 }
 
-// The exact path Task 11 consumes: the synthetic Database is never registered as a packageable
+// The exact path buildM2MSqlQuery consumes: the synthetic Database is never registered as a packageable
 // element, so it has to resolve through a real ConnectionStore during plan-node assembly, not just
 // through the SQL generator that toSQLString exercises.
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testSourceSynthesisExecutionPlan():Boolean[1]

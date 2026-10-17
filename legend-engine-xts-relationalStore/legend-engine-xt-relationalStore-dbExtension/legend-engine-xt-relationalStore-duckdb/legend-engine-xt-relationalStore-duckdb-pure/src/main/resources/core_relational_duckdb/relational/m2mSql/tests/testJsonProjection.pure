@@ -314,7 +314,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Paint);
   let q       = buildM2MSqlQuery($setImpl, #{Paint {color}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
-  assertEquals('select json_object(\'color\', case when "m2m_sub"."color" is null then null else case when "m2m_sub"."color" = \'ROUGE\' then \'RED\' else case when "m2m_sub"."color" = \'CARMIN\' then \'RED\' else case when "m2m_sub"."color" = \'VERT\' then \'GREEN\' else error(\'Unmatched enum source value for property color\') end end end end) as "doc" from (select json_extract_string("root".data, \'$.color\') as "color" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'color\', case when "m2m_sub"."color" is null then null else case when "m2m_sub"."color" = \'ROUGE\' then \'RED\' else case when "m2m_sub"."color" = \'CARMIN\' then \'RED\' else case when "m2m_sub"."color" = \'VERT\' then \'GREEN\' else error(concat(\'Unmatched enum source value for property color: \', "m2m_sub"."color")) end end end end) as "doc" from (select json_extract_string("root".data, \'$.color\') as "color" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }
 
 // The exploded leaf is an `unnest` injected into the inner SELECT, typed by the collection's element;
