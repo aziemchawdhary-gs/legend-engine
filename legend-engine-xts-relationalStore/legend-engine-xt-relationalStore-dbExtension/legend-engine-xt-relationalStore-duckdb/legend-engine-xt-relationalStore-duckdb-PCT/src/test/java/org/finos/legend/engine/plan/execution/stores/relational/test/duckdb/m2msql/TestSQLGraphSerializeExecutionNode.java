@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * TDD coverage for {@link SQLGraphSerializeExecutionNode} execution: hand-builds the node (no plan
  * generation involved — that lands in a later task) and runs it against embedded DuckDB.
  *
- * <p><b>Envelope finding (Task 12, Step 4):</b> the real Java M2M graph-fetch serialize path
+ * <p><b>Envelope finding:</b> the real Java M2M graph-fetch serialize path
  * ({@code ExecutionNodeSerializerHelper.Serializer.writeTo}, used by the M2M {@code serialize()}
  * function) writes a <i>bare</i> JSON value when the result stream has exactly one element, and a
  * JSON array (empty or multi-element) otherwise — confirmed both by reading that class directly and
@@ -59,7 +59,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * {@code JsonStreamHandler.writeTo} mirrors this exactly (bare value for 1 row, array for 0 or 2+
  * rows) so that a plan rewritten to use this SQL node produces byte-identical envelopes to the Java
  * path at the {@code DEFAULT} serializer boundary — which is what {@code TestM2MSqlParity}-style
- * parity assertions (Task 13) compare.
+ * parity assertions (TestM2MSqlParity) compare.
  */
 class TestSQLGraphSerializeExecutionNode
 {

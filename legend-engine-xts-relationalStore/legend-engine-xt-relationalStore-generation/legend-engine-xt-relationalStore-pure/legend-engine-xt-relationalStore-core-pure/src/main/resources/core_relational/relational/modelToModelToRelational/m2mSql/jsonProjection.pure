@@ -28,7 +28,7 @@ import meta::relational::metamodel::*;
 import meta::relational::metamodel::relation::*;
 
 // The two SQL statements the executor needs: `setupSqls` load the source document into the synthetic
-// table (Task 12 substitutes the {{M2M_INPUT_PATH}} token with the real input location), `sqlQuery`
+// table (the executor substitutes the {{M2M_INPUT_PATH}} token with the real input location), `sqlQuery`
 // returns a single column holding one JSON document per source row.
 Class meta::relational::m2mSql::M2MSqlQuery
 {
@@ -149,7 +149,7 @@ function meta::relational::m2mSql::m2mSqlSourceTree(setImpl:PureInstanceSetImple
 }
 
 // The alias of the wrapping sub-query and the name of its single JSON column. Both are part of the
-// shape Task 12's executor reads back, so they live here rather than as inline literals.
+// shape the executor (M2MSqlGraphSerializeHelper) reads back, so they live here rather than as inline literals.
 function meta::relational::m2mSql::m2mSqlSubQueryAlias():String[1]
 {
   'm2m_sub';
@@ -258,26 +258,26 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
                                         elementSqlType = $expr.genericType.rawType->toOne()->pureTypeToSemiStructuredExtractType()
                                       )),
        | if($pt.subTrees->isEmpty(),
-       | ^M2MSqlProjection(columns = ^M2MSqlColumn
-                                     (
-                                       path       = $path,
-                                       columnName = $path->joinStrings('__'),
-                                       transform  = buildColumnLambda($rootSrcClass, $expr),
-                                       enumCases  = $pms.transformer->filter(t | $t->instanceOf(EnumerationMapping))->cast(@EnumerationMapping<Any>).enumValueMappings
-                                                        ->map(evm | $evm.sourceValues->map(v | ^M2MSqlEnumCase(sourceValue = $v->match([e:Enum[1] | $e.name, a:Any[1] | $a]), targetName = $evm.enum.name)))
-                                     )),
-       | // A to-many complex property would need one JSON object per source element, which this flat
-         // single-row projection cannot express. canPlanM2MSql rejects it; this is the backstop for a
-         // direct caller that skipped the gate.
-         assert($pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(), | 'to-many complex property ' + $pt.property.name->toOne() + ' is not supported by the M2M SQL projection');
-         let nested = nestedSetImplementation($pms, $pt, $mapping);
-         let sub    = flattenTargetTree($nested, $pt->cast(@GraphFetchTree), $expr, $path, $mapping, $rootSrcClass);
-         ^M2MSqlProjection
-         (
-           columns   = $sub.columns,
-           presences = ^M2MSqlPresenceColumn(columnName = presenceColumnName($path), sourcePath = $expr->sourceJsonPath()->joinStrings('.'))->concatenate($sub.presences)
-         );
-      ));
+            | ^M2MSqlProjection(columns = ^M2MSqlColumn
+                                          (
+                                            path       = $path,
+                                            columnName = $path->joinStrings('__'),
+                                            transform  = buildColumnLambda($rootSrcClass, $expr),
+                                            enumCases  = $pms.transformer->filter(t | $t->instanceOf(EnumerationMapping))->cast(@EnumerationMapping<Any>).enumValueMappings
+                                                             ->map(evm | $evm.sourceValues->map(v | ^M2MSqlEnumCase(sourceValue = $v->match([e:Enum[1] | $e.name, a:Any[1] | $a]), targetName = $evm.enum.name)))
+                                          )),
+            | // A to-many complex property would need one JSON object per source element, which this flat
+              // single-row projection cannot express. canPlanM2MSql rejects it; this is the backstop for a
+              // direct caller that skipped the gate.
+              assert($pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(), | 'to-many complex property ' + $pt.property.name->toOne() + ' is not supported by the M2M SQL projection');
+              let nested = nestedSetImplementation($pms, $pt, $mapping);
+              let sub    = flattenTargetTree($nested, $pt->cast(@GraphFetchTree), $expr, $path, $mapping, $rootSrcClass);
+              ^M2MSqlProjection
+              (
+                columns   = $sub.columns,
+                presences = ^M2MSqlPresenceColumn(columnName = presenceColumnName($path), sourcePath = $expr->sourceJsonPath()->joinStrings('.'))->concatenate($sub.presences)
+              );
+           ));
   );
   ^M2MSqlProjection(columns = $parts.columns, presences = $parts.presences, explodes = $parts.explodes);
 }
@@ -480,7 +480,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlLeafReference(column
 }
 
 // The enumeration mapping of one column, as a CASE over the inner query's raw source value. A source
-// value with no arm raises, as the Java path does for a value the enumeration mapping does not know;
+// value with no arm raises (naming the value), as the Java path does for a value the enumeration mapping does not know;
 // DuckDB only evaluates `error` for a row that reaches it. An absent value stays null.
 function <<access.private>> meta::relational::m2mSql::m2mSqlEnumCaseReference(columnName:String[1], cases:M2MSqlEnumCase[*], propertyName:String[1]):RelationalOperationElement[1]
 {
@@ -495,7 +495,7 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlEnumCaseReference(co
                      $acc
                    ]
     )->cast(@RelationalOperationElement)
-  }, ^DynaFunction(name = 'sqlError', parameters = ^Literal(value = 'Unmatched enum source value for property ' + $propertyName))->cast(@RelationalOperationElement));
+  }, ^DynaFunction(name = 'sqlError', parameters = ^DynaFunction(name = 'concat', parameters = [^Literal(value = 'Unmatched enum source value for property ' + $propertyName + ': '), $ref]))->cast(@RelationalOperationElement));
   ^DynaFunction(name = 'if', parameters = [^DynaFunction(name = 'isNull', parameters = $ref), ^Literal(value = ^meta::relational::metamodel::SQLNull()), $matched]);
 }
 

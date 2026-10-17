@@ -810,7 +810,8 @@ public class TestM2MSqlParity
         SingleExecutionPlan sqlPlan = compileAndPlan(grammar.replace("${CONNECTION_TYPE}", "SqlModelConnection"), ENUM_TRANSFORM_QUERY);
         assertPlanShape("enumTransformUnmatched", sqlPlan);
         RuntimeException sqlFailure = assertThrows(RuntimeException.class, () -> runPlan(sqlPlan));
-        assertTrue(String.valueOf(rootCause(sqlFailure).getMessage()).contains("Unmatched enum source value for property color"), "unexpected SQL-path failure: " + rootCause(sqlFailure));
+        String sqlMessage = String.valueOf(rootCause(sqlFailure).getMessage());
+        assertTrue(sqlMessage.contains("Unmatched enum source value for property color") && sqlMessage.contains("NOIR"), "unexpected SQL-path failure: " + rootCause(sqlFailure));
     }
 
     // A primitive collection is only translated for strings, so this one stays on the Java path.

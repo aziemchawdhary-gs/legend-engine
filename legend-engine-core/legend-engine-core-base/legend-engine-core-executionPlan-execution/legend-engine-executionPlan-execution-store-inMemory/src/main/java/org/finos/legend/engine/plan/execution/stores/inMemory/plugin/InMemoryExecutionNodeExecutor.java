@@ -126,16 +126,16 @@ public class InMemoryExecutionNodeExecutor implements ExecutionNodeVisitor<Resul
      * A {@link StoreStreamReadingExecutionNode} whose connection is a {@link SqlModelConnection} is, by
      * definition, a M2M SQL query that the plan-rewrite collapse declined to route to the SQL execution path
      * and that is instead running on this Java in-memory fallback path. Log it as a structured event so
-     * fallback rates are observable (see M2M SQL execution phase-2 spec, telemetry-driven coverage growth).
+     * fallback rates are observable. Never fails: telemetry must not be the reason a query does.
      */
-    public static void logM2MSqlFallbackIfApplicable(StoreStreamReadingExecutionNode node, Identity identity)
+    static void logM2MSqlFallbackIfApplicable(StoreStreamReadingExecutionNode node, Identity identity)
     {
         if (node.connection instanceof SqlModelConnection)
         {
             SqlModelConnection connection = (SqlModelConnection) node.connection;
             String url = connection.url;
             String scheme = (url != null && url.indexOf(':') > 0) ? url.substring(0, url.indexOf(':')) : "none";
-            LOGGER.info("{}", new LogInfo(M2MSqlFallbackLoggingEventType.M2M_SQL_JAVA_FALLBACK_EXECUTED, identity.getName(), connection._class + " via " + scheme));
+            LOGGER.info("{}", new LogInfo(M2MSqlFallbackLoggingEventType.M2M_SQL_JAVA_FALLBACK_EXECUTED, identity == null ? null : identity.getName(), connection._class + " via " + scheme));
         }
     }
 

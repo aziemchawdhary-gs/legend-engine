@@ -25,7 +25,7 @@ import meta::relational::metamodel::relation::*;
 
 // The single synthetic relational store that stands in for an M2M source class: one table with one
 // JSON column, plus a mapping that reads the source class' properties back out of that column by
-// semi-structured navigation. Task 11 plans queries against `mapping` and executes them against a
+// semi-structured navigation. buildM2MSqlQuery plans queries against `mapping` and executes them against a
 // DuckDB view over `table`, so all five pieces are handed back together.
 Class meta::relational::m2mSql::M2MSqlSourceStore
 {

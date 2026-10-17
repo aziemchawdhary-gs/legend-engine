@@ -125,6 +125,17 @@ Class meta::relational::m2mSql::tests::scalarTypes::S_Item
   s: String[1];
 }
 
+Class meta::relational::m2mSql::tests::filterAutoMap::Target
+{
+  label: String[1];
+  code: String[0..1];
+}
+Class meta::relational::m2mSql::tests::filterAutoMap::S_Target
+{
+  label: String[1];
+  code: Integer[1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -602,6 +613,15 @@ Mapping meta::relational::m2mSql::tests::scalarTypes::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::filterAutoMap::TestMapping
+(
+  *meta::relational::m2mSql::tests::filterAutoMap::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::filterAutoMap::S_Target
+    label: $src.label
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::localProperty::TestMapping
 (
   *meta::relational::m2mSql::tests::localProperty::Person: Pure
@@ -893,7 +913,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testSubTypeTreeIsNotTran
   assert($result.reason->isNotEmpty() && $result.reason->toOne()->contains('subType'), | 'expected reason to mention subType, got: ' + $result.reason->orElse('<none>'));
 }
 
-// Remaining translatable parity-corpus cases (Task 8's TestM2MSqlParity), included so the
+// Remaining translatable parity-corpus cases (TestM2MSqlParity), included so the
 // whitelist is checked against the full corpus this task's design context is bound to, not just
 // the single positive case Step 1 of the brief calls out by name.
 
@@ -1268,4 +1288,24 @@ function <<test.Test>> meta::relational::m2mSql::tests::testUnprovenScalarTypesA
   assertEquals('property type not yet translated: sd', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{sd}}#->cast(@RootGraphFetchTree<Any>)));
   assertEquals('property type not yet translated: dt', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{dt}}#->cast(@RootGraphFetchTree<Any>)));
   assertEquals('<translatable>',                      meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{s}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// `code` has no property mapping, and the source property of that name has another type, so the Java
+// path does not pass it through: on the target it is empty. Reading the source property instead would
+// filter on a value the target never has.
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnPropertyThatIsNotAutoMappedIsNotRewritten():Boolean[1]
+{
+  let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
+                    {t:meta::relational::m2mSql::tests::filterAutoMap::Target[1] | $t.code == 'x'},
+                    meta::relational::m2mSql::tests::filterAutoMap::TestMapping,
+                    meta::relational::m2mSql::tests::filterAutoMap::Target);
+  assertEmpty($rewritten);
+}
+
+// Column names in the inner query are derived from aliases, and the SQL generator drops an embedded
+// double quote from an identifier, so `a"b` and `ab` would land on the same column.
+function <<test.Test>> meta::relational::m2mSql::tests::testAliasWithDoubleQuoteIsNotTranslatable():Boolean[1]
+{
+  assertEquals('alias containing a double quote not yet translated: na"me',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::simpleRename::TestMapping, #{meta::relational::m2mSql::tests::simpleRename::Person{'na"me': fullName}}#->cast(@RootGraphFetchTree<Any>)));
 }

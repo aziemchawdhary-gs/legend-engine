@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package org.finos.legend.engine.plan.execution.stores.inMemory;
+package org.finos.legend.engine.plan.execution.stores.inMemory.plugin;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import org.finos.legend.engine.plan.execution.stores.inMemory.plugin.InMemoryExecutionNodeExecutor;
 import org.finos.legend.engine.protocol.pure.v1.model.executionPlan.nodes.graphFetch.store.inMemory.StoreStreamReadingExecutionNode;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.JsonModelConnection;
 import org.finos.legend.engine.protocol.pure.v1.model.packageableElement.store.modelToModel.connection.SqlModelConnection;
@@ -91,5 +90,38 @@ public class TestM2MSqlFallbackLogging
         InMemoryExecutionNodeExecutor.logM2MSqlFallbackIfApplicable(node, Identity.getAnonymousIdentity());
 
         assertEquals(0, this.appender.list.size());
+    }
+
+    @Test
+    public void logsSchemeAsNoneWhenUrlHasNoScheme()
+    {
+        SqlModelConnection connection = new SqlModelConnection();
+        connection._class = "test::S";
+
+        StoreStreamReadingExecutionNode node = new StoreStreamReadingExecutionNode();
+        node.connection = connection;
+
+        InMemoryExecutionNodeExecutor.logM2MSqlFallbackIfApplicable(node, Identity.getAnonymousIdentity());
+
+        assertEquals(1, this.appender.list.size());
+        String formattedMessage = this.appender.list.get(0).getFormattedMessage();
+        assertTrue(formattedMessage.contains("test::S via none"), formattedMessage);
+    }
+
+    // Telemetry must never be the reason a query fails.
+    @Test
+    public void logsWithoutAnIdentity()
+    {
+        SqlModelConnection connection = new SqlModelConnection();
+        connection._class = "test::S";
+        connection.url = "data:" + PAYLOAD;
+
+        StoreStreamReadingExecutionNode node = new StoreStreamReadingExecutionNode();
+        node.connection = connection;
+
+        InMemoryExecutionNodeExecutor.logM2MSqlFallbackIfApplicable(node, null);
+
+        assertEquals(1, this.appender.list.size());
+        assertTrue(this.appender.list.get(0).getFormattedMessage().contains("M2M_SQL_JAVA_FALLBACK_EXECUTED"));
     }
 }

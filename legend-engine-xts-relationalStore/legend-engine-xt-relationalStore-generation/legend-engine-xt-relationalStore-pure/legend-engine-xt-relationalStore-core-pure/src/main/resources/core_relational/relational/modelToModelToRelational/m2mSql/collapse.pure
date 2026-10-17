@@ -123,11 +123,9 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlGlobalNodeRejection(
                     | 'root class mapping is not a single Pure instance set implementation',
                     | if(!meta::relational::m2mSql::sameTreeShape($serializeTree->toOne(), $routedTree->cast(@GraphFetchTree), true),
                          | 'serialize tree differs from the graph fetch tree',
-                         // The target-class constraint guard needs the reader's enableConstraints flag,
-                         // which is only reachable once the local graph fetch node is unwrapped -- peeked
-                         // here rather than reordering the cascade, since the reader's own shape is still
-                         // fully validated by m2mSqlLocalNodeRejection below regardless of this flag.
-                         | if(meta::relational::m2mSql::classAndSupertypeConstraintsExist(meta::relational::m2mSql::treeClasses($routedTree->cast(@GraphFetchTree))) && $globalNode.localGraphFetchExecutionNode->meta::relational::m2mSql::m2mSqlReaderEnableConstraints(),
+                         // The global node carries the same enableConstraints flag the reader is built with;
+                         // an absent one is treated as checked.
+                         | if(meta::relational::m2mSql::classAndSupertypeConstraintsExist(meta::relational::m2mSql::treeClasses($routedTree->cast(@GraphFetchTree))) && $globalNode.enableConstraints->orElse(true),
                               | 'constraints on the target classes are not yet translated',
                               | $globalNode.localGraphFetchExecutionNode->m2mSqlLocalNodeRejection($routedTree, $serializeTree->toOne()->cast(@RootGraphFetchTree<Any>), $extensions)
                              )
@@ -317,25 +315,6 @@ function <<access.private>> meta::relational::m2mSql::treeClasses(tree:GraphFetc
 function <<access.private>> meta::relational::m2mSql::classAndSupertypeConstraintsExist(classes:Class<Any>[*]):Boolean[1]
 {
   $classes->exists(c | $c->meta::pure::functions::meta::getAllTypeGeneralisations()->filter(t | $t->instanceOf(Class))->cast(@Class<Any>).constraints->isNotEmpty());
-}
-
-// Whether the reader powering this graph fetch had constraint checking enabled when the plan was
-// built. Peeked here, ahead of m2mSqlLocalNodeRejection resolving the local node's shape fully, because
-// the target-class constraint guard runs before the reader is otherwise reached. Defaults to true
-// (checked) when the shape doesn't match what m2mSqlLocalNodeRejection expects, since that guard
-// rejects the shape on its own account regardless of this flag.
-function <<access.private>> meta::relational::m2mSql::m2mSqlReaderEnableConstraints(localNode:LocalGraphFetchExecutionNode[1]):Boolean[1]
-{
-  if($localNode->instanceOf(InMemoryRootGraphFetchExecutionNode) && !$localNode->instanceOf(InMemoryCrossStoreGraphFetchExecutionNode),
-     {|
-       let inMemory = $localNode->cast(@InMemoryRootGraphFetchExecutionNode);
-       if($inMemory.executionNodes->size() == 1 && $inMemory.executionNodes->at(0)->instanceOf(StoreStreamReadingExecutionNode),
-          | $inMemory.executionNodes->at(0)->cast(@StoreStreamReadingExecutionNode).enableConstraints,
-          | true
-         );
-     },
-     | true
-    );
 }
 
 // Only the plain `serialize(collection, tree)` overload is translated in this slice: the checked and
