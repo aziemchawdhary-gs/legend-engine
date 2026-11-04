@@ -144,7 +144,11 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                | if($propertyMappings->exists(pm | $pm.explodeProperty == true) && !$propertyMappings->at(0).transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isExplodableSourceCollection(),
                     | ['explode property mapping is not a single source navigation to a String or Integer collection'],
                     {|
-                      let transformReasons = $propertyMappings->map(pm | $pm.transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::explainUntranslatableExpression());
+                      // A Boolean-valued property may compare and combine conditions like a filter does;
+                      // jsonProjection.pure's nullSafeBooleanLeaf makes an absent operand read as false.
+                      let isBoolean        = $propertyTree.property.genericType.rawType == Boolean;
+                      let transformReasons = $propertyMappings->map(pm | let body = $pm.transform.expressionSequence->evaluateAndDeactivate()->toOne();
+                                                                         if($isBoolean, | $body->meta::relational::m2mSql::explainUntranslatableFilterExpression(), | $body->meta::relational::m2mSql::explainUntranslatableExpression()););
                       if($transformReasons->isNotEmpty(),
                          | $transformReasons->map(r | 'unsupported transform for property ' + $propertyTree.property.name->toOne() + ': ' + $r),
                          | if($propertyTree.subTrees->isEmpty(),
@@ -349,14 +353,16 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:V
     v:VariableExpression[1] |
       if($v.name == 'src', | [], | 'unsupported variable in transform: $' + $v.name),
     i:InstanceValue[1] |
+      if($i.values->evaluateAndDeactivate()->size() == 1 && $i.values->evaluateAndDeactivate()->toOne()->instanceOf(LambdaFunction),
+         | $i.values->evaluateAndDeactivate()->toOne()->cast(@LambdaFunction<Any>)->meta::relational::m2mSql::explainUntranslatableLambda([], $whitelist),
       // Primitive literals only. An enumeration literal is a DataType too, but comparing one against
       // the VARCHAR an enumeration-typed source property is extracted as is not established. A function
       // taking a collection (`plus`, `times`) holds its operands as the values of one InstanceValue, so
       // those are checked like any other operand.
-      if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(PrimitiveType),
+         | if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(PrimitiveType),
          | $i.values->evaluateAndDeactivate()->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->map(v | $v->meta::relational::m2mSql::explainUntranslatable($whitelist))->first(),
          | 'unsupported literal in transform'
-        ),
+        )),
     sfe:SimpleFunctionExpression[1] |
       // An enumeration-typed source property needs no special casing: the synthetic source store
       // extracts it as VARCHAR. An enumeration *transformer* is a different thing, handled by the caller.
@@ -370,13 +376,32 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:V
               // `=`, NULL for an absent operand, and NOT of a NULL is not the `true` the Java path gets.
               | if(($sfe.func == not_Boolean_1__Boolean_1_) && !$params->at(0)->meta::relational::m2mSql::isEquality() && $params->at(0)->meta::relational::m2mSql::anySubExpression(e | $e->meta::relational::m2mSql::isEquality()),
                    | 'negation of an expression that combines an equality with other conditions',
-                   | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
+                   // An `if` condition may compare and combine like a filter: CASE WHEN NULL takes the else
+                   // branch, as the Java path does for a comparison against an absent value.
+                   | if($sfe.func == if_Boolean_1__Function_1__Function_1__T_m_,
+                        | $params->at(0)->meta::relational::m2mSql::explainUntranslatable($whitelist->concatenate(meta::relational::m2mSql::sqlTranslatableFilterFunctions()))
+                            ->concatenate($params->tail()->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist)))->first(),
+                        | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
+                       )
                   )
              )
         );,
     a:ValueSpecification[1] |
       'unsupported expression in transform'
   ]);
+}
+
+// A lambda passed as an argument (`if`'s branches): translatable when it takes exactly the parameters
+// `parameterNames` names and its single expression is. The parameters are admitted as variables in its
+// body alongside `$src`.
+function <<access.private>> meta::relational::m2mSql::explainUntranslatableLambda(lambda:LambdaFunction<Any>[1], parameterNames:String[*], whitelist:Function<Any>[*]):String[0..1]
+{
+  let parameters = $lambda->functionType().parameters->evaluateAndDeactivate();
+  let body       = $lambda.expressionSequence->evaluateAndDeactivate();
+  if(($parameters.name != $parameterNames) || ($body->size() != 1),
+     | 'unsupported lambda in transform',
+     | $body->toOne()->meta::relational::m2mSql::explainUntranslatable($whitelist)
+    );
 }
 
 function <<access.private>> meta::relational::m2mSql::isEquality(vs:ValueSpecification[1]):Boolean[1]
@@ -489,7 +514,12 @@ function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<A
     times_Integer_MANY__Integer_1_,
     times_Number_MANY__Number_1_,
     divide_Number_1__Number_1__Float_1_,
-    toOne_T_MANY__T_1_
+    toOne_T_MANY__T_1_,
+    if_Boolean_1__Function_1__Function_1__T_m_,
+    isEmpty_Any_MANY__Boolean_1_,
+    isEmpty_Any_$0_1$__Boolean_1_,
+    isNotEmpty_Any_MANY__Boolean_1_,
+    isNotEmpty_Any_$0_1$__Boolean_1_
   ];
 }
 

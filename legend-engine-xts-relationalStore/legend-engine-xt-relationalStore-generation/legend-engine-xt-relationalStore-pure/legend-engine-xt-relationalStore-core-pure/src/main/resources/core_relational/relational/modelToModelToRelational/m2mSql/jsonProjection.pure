@@ -255,7 +255,7 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
                                           (
                                             path       = $path,
                                             columnName = $path->joinStrings('__'),
-                                            transform  = buildColumnLambda($rootSrcClass, $expr),
+                                            transform  = buildColumnLambda($rootSrcClass, if($pt.property.genericType.rawType == Boolean, | $expr->nullSafeBooleanLeaf(), | $expr)),
                                             enumCases  = $pms.transformer->filter(t | $t->instanceOf(EnumerationMapping))->cast(@EnumerationMapping<Any>).enumValueMappings
                                                              ->map(evm | $evm.sourceValues->map(v | ^M2MSqlEnumCase(sourceValue = $v->match([e:Enum[1] | $e.name, a:Any[1] | $a]), targetName = $evm.enum.name)))
                                           )),
@@ -320,6 +320,37 @@ function <<access.private>> meta::relational::m2mSql::nestedSetImplementation(pm
   $resolved->toOne()->cast(@PureInstanceSetImplementation);
 }
 
+// `[] == 'x'` is false on the Java path and NULL in SQL, so a Boolean leaf is wrapped as
+// `if(isNotEmpty(<leaf>), | <leaf>, | false)`: the leaf's own value whenever SQL produced one, and the
+// Java path's false when an absent operand made it NULL.
+function <<access.private>> meta::relational::m2mSql::nullSafeBooleanLeaf(expr:ValueSpecification[1]):ValueSpecification[1]
+{
+  let isNotEmpty = ^SimpleFunctionExpression
+                   (
+                     func             = isNotEmpty_Any_MANY__Boolean_1_,
+                     functionName     = 'isNotEmpty',
+                     importGroup      = system::imports::coreImport,
+                     genericType      = ^GenericType(rawType = Boolean),
+                     multiplicity     = PureOne,
+                     parametersValues = $expr
+                   )->evaluateAndDeactivate();
+  ^SimpleFunctionExpression
+  (
+    func             = if_Boolean_1__Function_1__Function_1__T_m_,
+    functionName     = 'if',
+    importGroup      = system::imports::coreImport,
+    genericType      = ^GenericType(rawType = Boolean),
+    multiplicity     = PureOne,
+    parametersValues = [$isNotEmpty, $expr->zeroParameterLambdaValue(Boolean), ^InstanceValue(values = false, genericType = ^GenericType(rawType = Boolean), multiplicity = PureOne)->zeroParameterLambdaValue(Boolean)]
+  )->evaluateAndDeactivate();
+}
+
+function <<access.private>> meta::relational::m2mSql::zeroParameterLambdaValue(body:ValueSpecification[1], returnType:Type[1]):InstanceValue[1]
+{
+  let lambda = ^LambdaFunction<Any>(expressionSequence = $body)->withClassifierType(^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = $returnType)));
+  ^InstanceValue(values = $lambda, genericType = $lambda.classifierGenericType->toOne(), multiplicity = PureOne);
+}
+
 // The root source variable every column and filter lambda of the inner query is expressed over.
 function <<access.private>> meta::relational::m2mSql::m2mSqlSourceVariable(srcClass:Class<Any>[1]):VariableExpression[1]
 {
@@ -350,6 +381,12 @@ function <<access.private>> meta::relational::m2mSql::replaceVariable(vs:ValueSp
   [
     v:VariableExpression[1]        | if($v.name == $name, | $replacement, | $v),
     fe:SimpleFunctionExpression[1] | ^$fe(parametersValues = $fe.parametersValues->evaluateAndDeactivate()->map(p | $p->replaceVariable($name, $replacement)))->evaluateAndDeactivate(),
+    // Operand collections (`plus`) and lambda arguments (`if`'s branches) hold expressions too.
+    i:InstanceValue[1]             | ^$i(values = $i.values->evaluateAndDeactivate()->map(x | $x->match([
+                                       l:LambdaFunction<Any>[1]  | ^$l(expressionSequence = $l.expressionSequence->evaluateAndDeactivate()->map(e | $e->replaceVariable($name, $replacement))),
+                                       e:ValueSpecification[1]   | $e->replaceVariable($name, $replacement),
+                                       a:Any[1]                  | $a
+                                     ]))),
     v:ValueSpecification[1]        | $v
   ]);
 }

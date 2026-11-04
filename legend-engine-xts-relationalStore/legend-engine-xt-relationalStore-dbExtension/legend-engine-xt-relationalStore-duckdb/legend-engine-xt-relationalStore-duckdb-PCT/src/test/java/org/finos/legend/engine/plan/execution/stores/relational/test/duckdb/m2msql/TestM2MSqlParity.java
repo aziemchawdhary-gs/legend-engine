@@ -1348,6 +1348,60 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\",\"zip\":10001,\"active\":true}},{\"name\":\"John\",\"address\":null}]}");
     }
 
+    // A conditional transform, and a Boolean property computed from an optional source property that
+    // is absent on the second row.
+    private static final String CONDITIONAL_GRAMMAR =
+            "Class m2msql::conditional::Person\n" +
+            "{\n" +
+            "   label: String[1];\n" +
+            "   hasNickname: Boolean[1];\n" +
+            "}\n" +
+            "Class m2msql::conditional::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   age: Integer[1];\n" +
+            "   nickname: String[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::conditional::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::conditional::S_Person\n" +
+            "      label: if($src.age >= 18, |'adult: ' + $src.name, |'minor: ' + $src.name),\n" +
+            "      hasNickname: $src.nickname->isNotEmpty()\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::conditional::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"Jane\",\"age\":34,\"nickname\":\"J\"},{\"name\":\"Tim\",\"age\":12}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void conditionalTransform()
+    {
+        assertParity("conditionalTransform", CONDITIONAL_GRAMMAR,
+                "|m2msql::conditional::Person.all()->graphFetch(#{m2msql::conditional::Person{label,hasNickname}}#)->serialize(#{m2msql::conditional::Person{label,hasNickname}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"label\":\"adult: Jane\",\"hasNickname\":true},{\"label\":\"minor: Tim\",\"hasNickname\":false}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;

@@ -12,10 +12,6 @@
     "reason": "unsupported mapping filter: negation of an expression that combines an equality with other conditions"
   },
   {
-    "case": "booleanTransform",
-    "reason": "unsupported transform for property isBoss: unsupported function in transform: equal"
-  },
-  {
     "case": "multiplicityCoercion",
     "reason": "collection property aliases is not mapped from a to-many String source property"
   },

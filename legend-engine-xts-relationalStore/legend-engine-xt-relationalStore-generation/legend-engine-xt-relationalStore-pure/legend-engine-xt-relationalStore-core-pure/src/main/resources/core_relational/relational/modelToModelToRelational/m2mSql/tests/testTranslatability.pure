@@ -136,6 +136,17 @@ Class meta::relational::m2mSql::tests::filterAutoMap::S_Target
   code: Integer[1];
 }
 
+Class meta::relational::m2mSql::tests::conditional::Item
+{
+  label: String[1];
+  flag: Boolean[1];
+}
+Class meta::relational::m2mSql::tests::conditional::S_Item
+{
+  name: String[1];
+  age: Integer[1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -619,6 +630,25 @@ Mapping meta::relational::m2mSql::tests::filterAutoMap::TestMapping
   {
     ~src meta::relational::m2mSql::tests::filterAutoMap::S_Target
     label: $src.label
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::conditional::TestMapping
+(
+  *meta::relational::m2mSql::tests::conditional::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::conditional::S_Item
+    label: if($src.age >= 18, |'adult ' + $src.name, |'minor ' + $src.name),
+    flag: $src.name == 'Jane'
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::conditionalTrim::TestMapping
+(
+  *meta::relational::m2mSql::tests::conditional::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::conditional::S_Item
+    label: if($src.age >= 18, |$src.name->trim(), |$src.name)
   }
 )
 
@@ -1308,4 +1338,21 @@ function <<test.Test>> meta::relational::m2mSql::tests::testAliasWithDoubleQuote
 {
   assertEquals('alias containing a double quote not yet translated: na"me',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::simpleRename::TestMapping, #{meta::relational::m2mSql::tests::simpleRename::Person{'na"me': fullName}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testConditionalTransformIsTranslatable():Boolean[1]
+{
+  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::conditional::TestMapping, #{meta::relational::m2mSql::tests::conditional::Item{label, flag}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testConditionalBranchIsChecked():Boolean[1]
+{
+  assertEquals('unsupported transform for property label: unsupported function in transform: trim',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::conditionalTrim::TestMapping, #{meta::relational::m2mSql::tests::conditional::Item{label}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// A comparison as the value of a Boolean property.
+function <<test.Test>> meta::relational::m2mSql::tests::testComparisonIsTranslatableAsBooleanValue():Boolean[1]
+{
+  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::conditional::TestMapping, #{meta::relational::m2mSql::tests::conditional::Item{flag}}#->cast(@RootGraphFetchTree<Any>)));
 }
