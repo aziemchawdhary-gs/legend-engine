@@ -112,15 +112,8 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                       | $columns,
                       | ^M2MSqlColumn(path = 'm2m__row', columnName = 'm2m__row', transform = buildColumnLambda($srcClass, ^InstanceValue(values = 1, genericType = ^GenericType(rawType = Integer), multiplicity = PureOne))));
 
-  let queryLambda = ^LambdaFunction<{->Any[*]}>
-                    (
-                      classifierGenericType = ^GenericType
-                                              (
-                                                rawType       = LambdaFunction,
-                                                typeArguments = ^GenericType(rawType = ^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = TabularDataSet)))
-                                              ),
-                      expressionSequence    = buildProjectExpression($srcClass, $projected, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters))
-                    );
+  let queryLambda = ^LambdaFunction<Any>(expressionSequence = buildProjectExpression($srcClass, $projected, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters)))
+                      ->withClassifierType(^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = TabularDataSet)));
 
   let source     = synthesizeSourceStore($srcClass, m2mSqlSourceTree($setImpl, $targetTree, $rootFilters, $extensions));
   let innerConn  = $connection->withInjectedColumns($source, $projection.presences, $projection.explodes);
@@ -373,23 +366,16 @@ function <<access.private>> meta::relational::m2mSql::buildFilterLambda(srcClass
 
 function <<access.private>> meta::relational::m2mSql::buildSourceLambda(srcClass:Class<Any>[1], expr:ValueSpecification[1], returnType:GenericType[1], returnMultiplicity:Multiplicity[1]):LambdaFunction<Any>[1]
 {
-  ^LambdaFunction<{Nil[1]->Any[*]}>
-  (
-    classifierGenericType = ^GenericType
-                            (
-                              rawType       = LambdaFunction,
-                              typeArguments = ^GenericType
-                                              (
-                                                rawType = ^FunctionType
-                                                          (
-                                                            parameters         = m2mSqlSourceVariable($srcClass),
-                                                            returnMultiplicity = $returnMultiplicity,
-                                                            returnType         = $returnType
-                                                          )
-                                              )
-                            ),
-    expressionSequence    = $expr
-  );
+  ^LambdaFunction<Any>(expressionSequence = $expr)
+    ->withClassifierType(^FunctionType(parameters = m2mSqlSourceVariable($srcClass), returnMultiplicity = $returnMultiplicity, returnType = $returnType));
+}
+
+// Set in a second step rather than in the `^LambdaFunction<...>(...)` that creates the lambda: in
+// interpreted mode the type arguments of that expression already set classifierGenericType, and a
+// second value for the to-one property is an error (compiled mode tolerates it). chain.pure does the same.
+function <<access.private>> meta::relational::m2mSql::withClassifierType(lambda:LambdaFunction<Any>[1], functionType:FunctionType[1]):LambdaFunction<Any>[1]
+{
+  ^$lambda(classifierGenericType = ^GenericType(rawType = LambdaFunction, typeArguments = ^GenericType(rawType = $functionType)));
 }
 
 // (b) `srcClass.all()->filter(<filter>)...->project([<transforms>], [<column names>])`, built by hand

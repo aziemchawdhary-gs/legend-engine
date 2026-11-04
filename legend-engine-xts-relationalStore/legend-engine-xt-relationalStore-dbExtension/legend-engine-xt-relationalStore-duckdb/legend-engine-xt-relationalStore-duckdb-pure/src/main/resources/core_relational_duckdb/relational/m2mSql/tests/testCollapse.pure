@@ -474,3 +474,19 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filter over a Float source property must not be collapsed');
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
 }
+
+// A collapsed plan has to print like any other: the IDE and planToString-based tooling show it.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testCollapsedPlanPrints():Boolean[1]
+{
+  let extensions = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testExtensions();
+  let plan = meta::pure::executionPlan::executionPlan(
+               |Person.all()->graphFetch(#{Person {fullName}}#)->serialize(#{Person {fullName}}#),
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::collapseMapping,
+               meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Person),
+               $extensions
+             );
+  let printed = $plan->meta::pure::executionPlan::toString::planToString($extensions);
+  assert($printed->contains('SQLGraphSerialize'), | $printed);
+  assert($printed->contains('url = file:...'), | $printed);
+  assert(!$printed->contains('m2mSqlCollapseTest.json'), | 'the url beyond its scheme must not be printed: ' + $printed);
+}
