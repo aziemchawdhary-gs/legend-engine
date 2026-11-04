@@ -186,7 +186,8 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
 
 // What a mapped primitive leaf's transform has to look like beyond being whitelisted, because the inner
 // query extracts each source property by that property's own shape:
-// - below the root a leaf is read as JSON (`data->'a'->'b'`), which only a plain navigation leaves intact;
+// - below the root a leaf is read by navigating the nested JSON object, and only a plain navigation is
+//   proven to read it as the Java path does (a computed nested leaf has no parity case yet);
 // - a collection leaf is the text of a JSON array, which only a to-many String source property yields;
 // - a to-one leaf must not read a source collection at all (`$src.names->toOne()` renders as the array).
 // An exploded leaf is exempt: isExplodableSourceCollection has already pinned its shape.
@@ -282,8 +283,8 @@ function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollecti
 
 // An enumeration transformer is translated as a CASE over the transform's result in the outer document
 // (see jsonProjection.pure's m2mSqlEnumCaseReference), which needs that result to be one SQL scalar:
-// a to-one property of the root set implementation. A nested leaf reaches the outer query as JSON
-// rather than as a scalar, and a to-many one as the text of a JSON array. The source values have to be
+// a to-one property of the root set implementation. A nested leaf is not yet proven to reach the outer
+// query as that scalar (no parity case), and a to-many one arrives as the text of a JSON array. The source values have to be
 // of the transform's own type -- values of its enumeration (compared by name), strings or integers --
 // because that is how the Java path looks them up: a value of another type never matches there, where
 // a comparison by name or text would.

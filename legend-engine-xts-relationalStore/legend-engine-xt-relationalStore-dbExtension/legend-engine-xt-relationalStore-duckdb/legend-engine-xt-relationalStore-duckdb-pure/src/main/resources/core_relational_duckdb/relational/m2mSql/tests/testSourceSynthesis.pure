@@ -64,7 +64,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
               DatabaseType.DuckDB,
               relationalExtensions()
             );
-  assertEquals('select "root".data->\'address\'->\'street\' as "street" from m2m_src_0 as "root"', $sql);
+  assertEquals('select ((("root".data->\'address\')->\'street\')->>\'$\') as "street" from m2m_src_0 as "root"', $sql);
 }
 
 // The exact path buildM2MSqlQuery consumes: the synthetic Database is never registered as a packageable

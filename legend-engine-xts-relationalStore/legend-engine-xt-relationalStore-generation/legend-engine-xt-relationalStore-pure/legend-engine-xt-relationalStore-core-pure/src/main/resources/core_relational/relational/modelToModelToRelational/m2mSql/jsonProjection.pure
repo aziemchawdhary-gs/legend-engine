@@ -472,7 +472,7 @@ function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpressio
 // A collection leaf arrives from the inner query as the *text* of a JSON array (the semi-structured
 // extract is typed VARCHAR — see meta::relational::m2mSql::pureTypeToSemiStructuredExtractType), so
 // it has to be re-parsed to nest as a real array rather than as a quoted string. To-one leaves need
-// no such treatment: root-level ones are already SQL scalars and nested ones are already JSON.
+// no such treatment: they arrive as SQL scalars, read out of their (possibly nested) JSON object.
 function <<access.private>> meta::relational::m2mSql::m2mSqlLeafReference(columnName:String[1], isCollection:Boolean[1]):RelationalOperationElement[1]
 {
   let ref = m2mSqlColumnReference($columnName);

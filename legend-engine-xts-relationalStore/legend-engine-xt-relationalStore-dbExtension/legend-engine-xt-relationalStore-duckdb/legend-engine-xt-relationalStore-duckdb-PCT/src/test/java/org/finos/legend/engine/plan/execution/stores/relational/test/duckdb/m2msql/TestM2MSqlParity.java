@@ -1276,6 +1276,78 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\"},{\"item\":\"i1\"}]}");
     }
 
+    // Below the root a leaf is read out of the nested JSON object; its JSON type has to survive that,
+    // so a number and a boolean come out as a number and a boolean, not as text.
+    private static final String NESTED_SCALARS_GRAMMAR =
+            "Class m2msql::nestedScalars::Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "   zip: Integer[1];\n" +
+            "   active: Boolean[1];\n" +
+            "}\n" +
+            "Class m2msql::nestedScalars::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::nestedScalars::Address[0..1];\n" +
+            "}\n" +
+            "Class m2msql::nestedScalars::S_Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "   zip: Integer[1];\n" +
+            "   active: Boolean[1];\n" +
+            "}\n" +
+            "Class m2msql::nestedScalars::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::nestedScalars::S_Address[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::nestedScalars::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::nestedScalars::S_Person\n" +
+            "      name: $src.name,\n" +
+            "      address: $src.address\n" +
+            "   }\n" +
+            "   *m2msql::nestedScalars::Address: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::nestedScalars::S_Address\n" +
+            "      city: $src.city,\n" +
+            "      zip: $src.zip,\n" +
+            "      active: $src.active\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::nestedScalars::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\",\"zip\":10001,\"active\":true}},{\"name\":\"John\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void nestedScalars()
+    {
+        assertParity("nestedScalars", NESTED_SCALARS_GRAMMAR,
+                "|m2msql::nestedScalars::Person.all()->graphFetch(#{m2msql::nestedScalars::Person{name,address{city,zip,active}}}#)->serialize(#{m2msql::nestedScalars::Person{name,address{city,zip,active}}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\",\"zip\":10001,\"active\":true}},{\"name\":\"John\",\"address\":null}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;

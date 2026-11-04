@@ -328,7 +328,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
 
   let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
-  assertEquals('select json_object(\'name\', "m2m_sub"."name", \'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", "root".data->\'address\'->\'city\' as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root") as "m2m_sub"', $node.sqlQuery);
+  assertEquals('select json_object(\'name\', "m2m_sub"."name", \'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", ((("root".data->\'address\')->\'city\')->>\'$\') as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root") as "m2m_sub"', $node.sqlQuery);
 }
 
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testConstrainedTargetStaysOnJavaPath():Boolean[1]
@@ -430,7 +430,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
 
   let node = $plan.rootExecutionNode->cast(@meta::relational::m2mSql::SQLGraphSerializeExecutionNode);
-  assertEquals('select json_object(\'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select "root".data->\'address\'->\'city\' as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root" where json_extract_string("root".data, \'$.name\') = \'Jane\') as "m2m_sub"', $node.sqlQuery);
+  assertEquals('select json_object(\'address\', case when "m2m_sub"."address__m2mPresent" then json_object(\'city\', "m2m_sub"."address__city") else null end) as "doc" from (select ((("root".data->\'address\')->\'city\')->>\'$\') as "address__city", json_extract_string("root".data, \'$.address\') is not null as "address__m2mPresent" from m2m_src_0 as "root" where json_extract_string("root".data, \'$.name\') = \'Jane\') as "m2m_sub"', $node.sqlQuery);
 }
 
 // The synthetic source store has no extract type for Number; the collapse has to decline before it
