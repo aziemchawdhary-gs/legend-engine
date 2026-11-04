@@ -147,6 +147,18 @@ Class meta::relational::m2mSql::tests::conditional::S_Item
   age: Integer[1];
 }
 
+Class meta::relational::m2mSql::tests::negatedCompound::Item
+{
+  name: String[1];
+  notBoss: Boolean[1];
+}
+Class meta::relational::m2mSql::tests::negatedCompound::S_Item
+{
+  name: String[1];
+  title: String[0..1];
+  region: String[1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -649,6 +661,17 @@ Mapping meta::relational::m2mSql::tests::conditionalTrim::TestMapping
   {
     ~src meta::relational::m2mSql::tests::conditional::S_Item
     label: if($src.age >= 18, |$src.name->trim(), |$src.name)
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::negatedCompound::TestMapping
+(
+  *meta::relational::m2mSql::tests::negatedCompound::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::negatedCompound::S_Item
+    ~filter !(($src.title == 'X') && ($src.region == 'EU'))
+    name: $src.name,
+    notBoss: !(($src.title == 'Boss') && ($src.region == 'EU'))
   }
 )
 
@@ -1355,4 +1378,10 @@ function <<test.Test>> meta::relational::m2mSql::tests::testConditionalBranchIsC
 function <<test.Test>> meta::relational::m2mSql::tests::testComparisonIsTranslatableAsBooleanValue():Boolean[1]
 {
   assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::conditional::TestMapping, #{meta::relational::m2mSql::tests::conditional::Item{flag}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// Phase 2 rejected this shape; null-safe equality (jsonProjection.pure's nullSafeFilter) makes it translatable.
+function <<test.Test>> meta::relational::m2mSql::tests::testNegatedCompoundWithEqualityIsTranslatable():Boolean[1]
+{
+  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::negatedCompound::TestMapping, #{meta::relational::m2mSql::tests::negatedCompound::Item{name, notBoss}}#->cast(@RootGraphFetchTree<Any>)));
 }

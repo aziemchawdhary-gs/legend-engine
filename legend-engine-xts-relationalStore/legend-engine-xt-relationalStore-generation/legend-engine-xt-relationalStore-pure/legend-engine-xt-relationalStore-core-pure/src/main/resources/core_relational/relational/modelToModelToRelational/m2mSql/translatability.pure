@@ -144,8 +144,10 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                | if($propertyMappings->exists(pm | $pm.explodeProperty == true) && !$propertyMappings->at(0).transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isExplodableSourceCollection(),
                     | ['explode property mapping is not a single source navigation to a String or Integer collection'],
                     {|
-                      // A Boolean-valued property may compare and combine conditions like a filter does;
-                      // jsonProjection.pure's nullSafeBooleanLeaf makes an absent operand read as false.
+                      // A Boolean-valued property may compare and combine conditions like a filter does.
+                      // It cannot come out NULL where the Java path has false: jsonProjection.pure's
+                      // nullSafeFilter spells out every equality with an optional side, isEmpty/isNotEmpty
+                      // are never NULL, and Pure does not compile other comparisons on an optional value.
                       let isBoolean        = $propertyTree.property.genericType.rawType == Boolean;
                       let transformReasons = $propertyMappings->map(pm | let body = $pm.transform.expressionSequence->evaluateAndDeactivate()->toOne();
                                                                          if($isBoolean, | $body->meta::relational::m2mSql::explainUntranslatableFilterExpression(), | $body->meta::relational::m2mSql::explainUntranslatableExpression()););
@@ -372,17 +374,13 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:V
          // pureToSQLQuery asserts on an equality with a to-many side rather than translating it.
          | if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | !$p.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
               | 'equality over a collection is not translated',
-              // `!(a == b)` alone is rendered null-safely. Under anything else the equality is a plain
-              // `=`, NULL for an absent operand, and NOT of a NULL is not the `true` the Java path gets.
-              | if(($sfe.func == not_Boolean_1__Boolean_1_) && !$params->at(0)->meta::relational::m2mSql::isEquality() && $params->at(0)->meta::relational::m2mSql::anySubExpression(e | $e->meta::relational::m2mSql::isEquality()),
-                   | 'negation of an expression that combines an equality with other conditions',
-                   // An `if` condition may compare and combine like a filter: CASE WHEN NULL takes the else
-                   // branch, as the Java path does for a comparison against an absent value.
-                   | if($sfe.func == if_Boolean_1__Function_1__Function_1__T_m_,
-                        | $params->at(0)->meta::relational::m2mSql::explainUntranslatable($whitelist->concatenate(meta::relational::m2mSql::sqlTranslatableFilterFunctions()))
-                            ->concatenate($params->tail()->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist)))->first(),
-                        | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
-                       )
+              // An `if` condition may compare and combine like a filter: CASE WHEN NULL takes the else
+              // branch, as the Java path does for a comparison against an absent value, and
+              // jsonProjection.pure's nullSafeFilter spells out every equality with an optional side.
+              | if($sfe.func == if_Boolean_1__Function_1__Function_1__T_m_,
+                   | $params->at(0)->meta::relational::m2mSql::explainUntranslatable($whitelist->concatenate(meta::relational::m2mSql::sqlTranslatableFilterFunctions()))
+                       ->concatenate($params->tail()->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist)))->first(),
+                   | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
                   )
              )
         );,
@@ -402,11 +400,6 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatableLambd
      | 'unsupported lambda in transform',
      | $body->toOne()->meta::relational::m2mSql::explainUntranslatable($whitelist)
     );
-}
-
-function <<access.private>> meta::relational::m2mSql::isEquality(vs:ValueSpecification[1]):Boolean[1]
-{
-  $vs->instanceOf(SimpleFunctionExpression) && ($vs->cast(@SimpleFunctionExpression).func == equal_Any_MANY__Any_MANY__Boolean_1_);
 }
 
 // True only for a bare chain of source property accesses rooted at a variable — `$src`,

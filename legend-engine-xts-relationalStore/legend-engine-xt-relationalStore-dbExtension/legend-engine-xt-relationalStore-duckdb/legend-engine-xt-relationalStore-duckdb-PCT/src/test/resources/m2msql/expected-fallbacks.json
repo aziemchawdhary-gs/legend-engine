@@ -8,10 +8,6 @@
     "reason": "root filter is not translatable to the source"
   },
   {
-    "case": "negatedCompoundFilter",
-    "reason": "unsupported mapping filter: negation of an expression that combines an equality with other conditions"
-  },
-  {
     "case": "multiplicityCoercion",
     "reason": "collection property aliases is not mapped from a to-many String source property"
   },

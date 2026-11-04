@@ -112,7 +112,7 @@ function meta::relational::m2mSql::buildM2MSqlQuery(setImpl:PureInstanceSetImple
                       | $columns,
                       | ^M2MSqlColumn(path = 'm2m__row', columnName = 'm2m__row', transform = buildColumnLambda($srcClass, ^InstanceValue(values = 1, genericType = ^GenericType(rawType = Integer), multiplicity = PureOne))));
 
-  let queryLambda = ^LambdaFunction<Any>(expressionSequence = buildProjectExpression($srcClass, $projected, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters)))
+  let queryLambda = ^LambdaFunction<Any>(expressionSequence = buildProjectExpression($srcClass, $projected, $setImpl->mappingFilterOver($srcVar)->concatenate($rootFilters)->map(f | $f->nullSafeFilter())))
                       ->withClassifierType(^FunctionType(returnMultiplicity = PureOne, returnType = ^GenericType(rawType = TabularDataSet)));
 
   let source     = synthesizeSourceStore($srcClass, m2mSqlSourceTree($setImpl, $targetTree, $rootFilters, $extensions));
@@ -255,7 +255,7 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
                                           (
                                             path       = $path,
                                             columnName = $path->joinStrings('__'),
-                                            transform  = buildColumnLambda($rootSrcClass, if($pt.property.genericType.rawType == Boolean, | $expr->nullSafeBooleanLeaf(), | $expr)),
+                                            transform  = buildColumnLambda($rootSrcClass, $expr->nullSafeFilter()),
                                             enumCases  = $pms.transformer->filter(t | $t->instanceOf(EnumerationMapping))->cast(@EnumerationMapping<Any>).enumValueMappings
                                                              ->map(evm | $evm.sourceValues->map(v | ^M2MSqlEnumCase(sourceValue = $v->match([e:Enum[1] | $e.name, a:Any[1] | $a]), targetName = $evm.enum.name)))
                                           )),
@@ -320,28 +320,44 @@ function <<access.private>> meta::relational::m2mSql::nestedSetImplementation(pm
   $resolved->toOne()->cast(@PureInstanceSetImplementation);
 }
 
-// `[] == 'x'` is false on the Java path and NULL in SQL, so a Boolean leaf is wrapped as
-// `if(isNotEmpty(<leaf>), | <leaf>, | false)`: the leaf's own value whenever SQL produced one, and the
-// Java path's false when an absent operand made it NULL.
-function <<access.private>> meta::relational::m2mSql::nullSafeBooleanLeaf(expr:ValueSpecification[1]):ValueSpecification[1]
+// An equality with an optional side is NULL in SQL when that side is absent, where the Java path has
+// `false` (or `true`, for two absent sides). Harmless on its own -- a NULL filter drops the row like a
+// false one -- but not under a NOT, so every such equality in a filter is spelled out as
+// `if(isEmpty(a) || isEmpty(b), |isEmpty(a) && isEmpty(b), |a == b)`, which is never NULL.
+function <<access.private>> meta::relational::m2mSql::nullSafeFilter(vs:ValueSpecification[1]):ValueSpecification[1]
 {
-  let isNotEmpty = ^SimpleFunctionExpression
-                   (
-                     func             = isNotEmpty_Any_MANY__Boolean_1_,
-                     functionName     = 'isNotEmpty',
-                     importGroup      = system::imports::coreImport,
-                     genericType      = ^GenericType(rawType = Boolean),
-                     multiplicity     = PureOne,
-                     parametersValues = $expr
-                   )->evaluateAndDeactivate();
+  $vs->match(
+  [
+    sfe:SimpleFunctionExpression[1] |
+      let params  = $sfe.parametersValues->evaluateAndDeactivate()->map(p | $p->nullSafeFilter());
+      let rebuilt = ^$sfe(parametersValues = $params)->evaluateAndDeactivate();
+      if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | $p.multiplicity->getLowerBound() == 0),
+         | let a = $params->at(0);
+           let b = $params->at(1);
+           booleanCall(if_Boolean_1__Function_1__Function_1__T_m_, 'if',
+                       [booleanCall(or_Boolean_1__Boolean_1__Boolean_1_, 'or', [$a->isEmptyCall(), $b->isEmptyCall()]),
+                        booleanCall(and_Boolean_1__Boolean_1__Boolean_1_, 'and', [$a->isEmptyCall(), $b->isEmptyCall()])->zeroParameterLambdaValue(Boolean),
+                        $rebuilt->zeroParameterLambdaValue(Boolean)]);,
+         | $rebuilt);,
+    v:ValueSpecification[1] | $v
+  ]);
+}
+
+function <<access.private>> meta::relational::m2mSql::isEmptyCall(vs:ValueSpecification[1]):ValueSpecification[1]
+{
+  booleanCall(isEmpty_Any_MANY__Boolean_1_, 'isEmpty', $vs);
+}
+
+function <<access.private>> meta::relational::m2mSql::booleanCall(func:Function<Any>[1], name:String[1], parameters:ValueSpecification[*]):ValueSpecification[1]
+{
   ^SimpleFunctionExpression
   (
-    func             = if_Boolean_1__Function_1__Function_1__T_m_,
-    functionName     = 'if',
+    func             = $func,
+    functionName     = $name,
     importGroup      = system::imports::coreImport,
     genericType      = ^GenericType(rawType = Boolean),
     multiplicity     = PureOne,
-    parametersValues = [$isNotEmpty, $expr->zeroParameterLambdaValue(Boolean), ^InstanceValue(values = false, genericType = ^GenericType(rawType = Boolean), multiplicity = PureOne)->zeroParameterLambdaValue(Boolean)]
+    parametersValues = $parameters
   )->evaluateAndDeactivate();
 }
 

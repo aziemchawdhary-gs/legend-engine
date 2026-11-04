@@ -1018,6 +1018,12 @@ public class TestM2MSqlParity
     }
 
     @Test
+    void negatedOrFilter()
+    {
+        assertParity("negatedOrFilter", OPTIONAL_FILTER_GRAMMAR.replace("${FILTER}", "!(($src.status == 'X') || ($src.region == 'US'))"), OPTIONAL_FILTER_QUERY, "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"a\"}}");
+    }
+
+    @Test
     void negatedCompoundFilter()
     {
         assertParity("negatedCompoundFilter", OPTIONAL_FILTER_GRAMMAR.replace("${FILTER}", "!(($src.status == 'X') && ($src.region == 'EU'))"), OPTIONAL_FILTER_QUERY, "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"a\"}}");
@@ -1400,6 +1406,60 @@ public class TestM2MSqlParity
         assertParity("conditionalTransform", CONDITIONAL_GRAMMAR,
                 "|m2msql::conditional::Person.all()->graphFetch(#{m2msql::conditional::Person{label,hasNickname}}#)->serialize(#{m2msql::conditional::Person{label,hasNickname}}#)",
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"label\":\"adult: Jane\",\"hasNickname\":true},{\"label\":\"minor: Tim\",\"hasNickname\":false}]}");
+    }
+
+    // A negated compound as a property value; `title` is absent on the first row, where the Java path
+    // evaluates the equality as false and so the whole value as true.
+    private static final String NEGATED_BOOLEAN_GRAMMAR =
+            "Class m2msql::negatedBoolean::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   notBossInEu: Boolean[1];\n" +
+            "}\n" +
+            "Class m2msql::negatedBoolean::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   title: String[0..1];\n" +
+            "   region: String[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::negatedBoolean::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::negatedBoolean::S_Person\n" +
+            "      name: $src.name,\n" +
+            "      notBossInEu: !(($src.title == 'Boss') && ($src.region == 'EU'))\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::negatedBoolean::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"a\",\"region\":\"EU\"},{\"name\":\"b\",\"title\":\"Boss\",\"region\":\"EU\"},{\"name\":\"c\",\"title\":\"Boss\",\"region\":\"US\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void negatedBooleanTransform()
+    {
+        assertParity("negatedBooleanTransform", NEGATED_BOOLEAN_GRAMMAR,
+                "|m2msql::negatedBoolean::Person.all()->graphFetch(#{m2msql::negatedBoolean::Person{name,notBossInEu}}#)->serialize(#{m2msql::negatedBoolean::Person{name,notBossInEu}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"a\",\"notBossInEu\":true},{\"name\":\"b\",\"notBossInEu\":false},{\"name\":\"c\",\"notBossInEu\":true}]}");
     }
 
     private static Throwable rootCause(Throwable t)

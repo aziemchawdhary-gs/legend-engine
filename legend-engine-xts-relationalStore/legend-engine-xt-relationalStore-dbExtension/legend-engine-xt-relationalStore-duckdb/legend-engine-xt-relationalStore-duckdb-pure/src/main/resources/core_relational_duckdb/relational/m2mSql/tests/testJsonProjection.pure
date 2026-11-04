@@ -117,7 +117,28 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model
   code   : Integer[1];
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Staff
+{
+  name   : String[1];
+  title  : String[0..1];
+  region : String[1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Staff
+{
+  notBossInEu : Boolean[1];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::negatedBooleanMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Staff: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Staff
+    notBossInEu: !(($src.title == 'Boss') && ($src.region == 'EU'))
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::explodeMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::BasketCode: Pure
@@ -337,4 +358,14 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let q       = buildM2MSqlQuery($setImpl, #{BasketCode {code}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
   assertEquals('select json_object(\'code\', "m2m_sub"."code") as "doc" from (select 1 as "m2m__row", unnest(cast(json_extract("root".data, \'$.codes\') as BIGINT[])) as "code" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// The equality with the optional `title` is spelled out so the NOT over the compound never sees NULL.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testNegatedBooleanM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::negatedBooleanMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Staff);
+  let q       = buildM2MSqlQuery($setImpl, #{Staff {notBossInEu}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals('select json_object(\'notBossInEu\', "m2m_sub"."notBossInEu") as "doc" from (select not (case when (json_extract_string("root".data, \'$.title\') is null or \'Boss\' is null) then (json_extract_string("root".data, \'$.title\') is null and \'Boss\' is null) else json_extract_string("root".data, \'$.title\') = \'Boss\' end and json_extract_string("root".data, \'$.region\') = \'EU\') as "notBossInEu" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }
