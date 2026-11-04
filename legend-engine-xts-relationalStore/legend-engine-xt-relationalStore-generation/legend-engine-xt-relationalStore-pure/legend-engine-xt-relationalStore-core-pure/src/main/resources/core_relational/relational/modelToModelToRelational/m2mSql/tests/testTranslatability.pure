@@ -159,6 +159,18 @@ Class meta::relational::m2mSql::tests::negatedCompound::S_Item
   region: String[1];
 }
 
+Class meta::relational::m2mSql::tests::strings::Item
+{
+  upper: String[1];
+  len: Integer[1];
+  has: Boolean[1];
+  sub: String[1];
+}
+Class meta::relational::m2mSql::tests::strings::S_Item
+{
+  name: String[1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -672,6 +684,18 @@ Mapping meta::relational::m2mSql::tests::negatedCompound::TestMapping
     ~filter !(($src.title == 'X') && ($src.region == 'EU'))
     name: $src.name,
     notBoss: !(($src.title == 'Boss') && ($src.region == 'EU'))
+  }
+)
+
+Mapping meta::relational::m2mSql::tests::strings::TestMapping
+(
+  *meta::relational::m2mSql::tests::strings::Item: Pure
+  {
+    ~src meta::relational::m2mSql::tests::strings::S_Item
+    upper: $src.name->toUpper(),
+    len: $src.name->length(),
+    has: $src.name->contains('nn'),
+    sub: $src.name->substring(1, 3)
   }
 )
 
@@ -1384,4 +1408,15 @@ function <<test.Test>> meta::relational::m2mSql::tests::testComparisonIsTranslat
 function <<test.Test>> meta::relational::m2mSql::tests::testNegatedCompoundWithEqualityIsTranslatable():Boolean[1]
 {
   assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::negatedCompound::TestMapping, #{meta::relational::m2mSql::tests::negatedCompound::Item{name, notBoss}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testStringFunctionsAreTranslatable():Boolean[1]
+{
+  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{upper, len, has}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testSubstringIsNotTranslatable():Boolean[1]
+{
+  assertEquals('unsupported transform for property sub: unsupported function in transform: substring',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{sub}}#->cast(@RootGraphFetchTree<Any>)));
 }

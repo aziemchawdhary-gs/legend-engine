@@ -18,5 +18,9 @@
   {
     "case": "explodeNarrowSerialize",
     "reason": "explode property mapping is not selected as a leaf of the graph fetch tree"
+  },
+  {
+    "case": "stringFunctionsUnsupported",
+    "reason": "unsupported transform for property sub: unsupported function in transform: substring"
   }
 ]

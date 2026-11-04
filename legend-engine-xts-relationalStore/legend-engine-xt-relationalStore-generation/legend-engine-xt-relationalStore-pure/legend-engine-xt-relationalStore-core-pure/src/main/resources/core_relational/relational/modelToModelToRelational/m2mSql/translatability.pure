@@ -512,7 +512,17 @@ function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<A
     isEmpty_Any_MANY__Boolean_1_,
     isEmpty_Any_$0_1$__Boolean_1_,
     isNotEmpty_Any_MANY__Boolean_1_,
-    isNotEmpty_Any_$0_1$__Boolean_1_
+    isNotEmpty_Any_$0_1$__Boolean_1_,
+    // substring is not here: the DuckDB dialect renders it with SQL's 1-based start and a length, where
+    // Pure has a 0-based start and an exclusive end (pinned by the stringFunctionsUnsupported parity case).
+    toUpper_String_1__String_1_,
+    toLower_String_1__String_1_,
+    length_String_1__Integer_1_,
+    replace_String_1__String_1__String_1__String_1_,
+    startsWith_String_1__String_1__Boolean_1_,
+    endsWith_String_1__String_1__Boolean_1_,
+    contains_String_1__String_1__Boolean_1_,
+    toString_Any_1__String_1_
   ];
 }
 

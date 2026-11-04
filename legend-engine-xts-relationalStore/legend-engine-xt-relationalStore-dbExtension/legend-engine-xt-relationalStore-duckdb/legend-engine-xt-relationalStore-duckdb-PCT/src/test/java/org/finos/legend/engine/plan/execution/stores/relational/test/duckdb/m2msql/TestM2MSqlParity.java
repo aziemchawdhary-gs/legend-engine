@@ -1462,6 +1462,126 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"a\",\"notBossInEu\":true},{\"name\":\"b\",\"notBossInEu\":false},{\"name\":\"c\",\"notBossInEu\":true}]}");
     }
 
+    // String functions as property transforms; the second row has a non-ASCII letter and a negative number.
+    private static final String STRINGS_GRAMMAR =
+            "Class m2msql::strings::Item\n" +
+            "{\n" +
+            "   upper: String[1];\n" +
+            "   lower: String[1];\n" +
+            "   len: Integer[1];\n" +
+                        "   rep: String[1];\n" +
+            "   isA: Boolean[1];\n" +
+            "   endsN: Boolean[1];\n" +
+            "   hasNn: Boolean[1];\n" +
+            "   num: String[1];\n" +
+            "}\n" +
+            "Class m2msql::strings::S_Item\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   n: Integer[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::strings::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::strings::S_Item\n" +
+            "      upper: $src.name->toUpper(),\n" +
+            "      lower: $src.name->toLower(),\n" +
+            "      len: $src.name->length(),\n" +
+                        "      rep: $src.name->replace('n', 'N'),\n" +
+            "      isA: $src.name->startsWith('A'),\n" +
+            "      endsN: $src.name->endsWith('n'),\n" +
+            "      hasNn: $src.name->contains('nn'),\n" +
+            "      num: $src.n->toString()\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::strings::S_Item;\n" +
+            "  url: '${URL}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String STRINGS_QUERY =
+            "|m2msql::strings::Item.all()->graphFetch(#{m2msql::strings::Item{upper,lower,len,rep,isA,endsN,hasNn,num}}#)->serialize(#{m2msql::strings::Item{upper,lower,len,rep,isA,endsN,hasNn,num}}#)";
+
+    private static final String STRINGS_URL = "data:application/json,[{\"name\":\"Anna\",\"n\":7},{\"name\":\"\u00e9lan\",\"n\":-1}]";
+
+    @Test
+    void stringFunctions()
+    {
+        assertParity("stringFunctions", STRINGS_GRAMMAR.replace("${URL}", STRINGS_URL), STRINGS_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":["
+                + "{\"upper\":\"ANNA\",\"lower\":\"anna\",\"len\":4,\"rep\":\"ANNa\",\"isA\":true,\"endsN\":false,\"hasNn\":true,\"num\":\"7\"},"
+                + "{\"upper\":\"\u00c9LAN\",\"lower\":\"\u00e9lan\",\"len\":4,\"rep\":\"\u00e9laN\",\"isA\":false,\"endsN\":true,\"hasNn\":false,\"num\":\"-1\"}]}");
+    }
+
+    // substring stays on the Java path: the DuckDB dialect's rendering has SQL's 1-based start and a
+    // length, so `substring(1, 3)` of "Anna" would give "Ann" rather than Pure's "nn".
+    private static final String SUBSTRING_GRAMMAR =
+            "Class m2msql::substring::Item\n" +
+            "{\n" +
+            "   sub: String[1];\n" +
+            "}\n" +
+            "Class m2msql::substring::S_Item\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::substring::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::substring::S_Item\n" +
+            "      sub: $src.name->substring(1, 3)\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::substring::S_Item;\n" +
+            "  url: 'data:application/json,{\"name\":\"Anna\"}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    @Test
+    void stringFunctionsUnsupported()
+    {
+        assertParity("stringFunctionsUnsupported", SUBSTRING_GRAMMAR,
+                "|m2msql::substring::Item.all()->graphFetch(#{m2msql::substring::Item{sub}}#)->serialize(#{m2msql::substring::Item{sub}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"sub\":\"nn\"}}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;
