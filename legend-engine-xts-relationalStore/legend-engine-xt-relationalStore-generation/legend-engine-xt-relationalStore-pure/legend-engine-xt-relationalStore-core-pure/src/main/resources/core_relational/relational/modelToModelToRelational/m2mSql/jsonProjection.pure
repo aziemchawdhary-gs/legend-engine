@@ -183,6 +183,12 @@ function <<access.private>> meta::relational::m2mSql::pathSegment(propertyTree:P
 
 // The inner query's boolean column for one nested complex property. Named off the same flattened
 // path as its leaves, with a suffix no Pure property name would collide with by accident.
+// The inner query's Boolean column for a nested set's ~filter, next to the presence column.
+function <<access.private>> meta::relational::m2mSql::filterColumnName(path:String[*]):String[1]
+{
+  $path->joinStrings('__') + '__m2mFilter';
+}
+
 function <<access.private>> meta::relational::m2mSql::presenceColumnName(path:String[*]):String[1]
 {
   $path->joinStrings('__') + '__m2mPresent';
@@ -297,9 +303,14 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
               assert($pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(), | 'to-many complex property ' + $pt.property.name->toOne() + ' is not supported by the M2M SQL projection');
               let nested = nestedSetImplementation($pms, $pt, $mapping);
               let sub    = flattenTargetTree($nested, $pt->cast(@GraphFetchTree), $expr, $path, $mapping, $rootSrcClass);
+              // The nested set's own ~filter, read off the same source object: the object is only there
+              // when it passes (see filterColumnName).
+              let filter = if($nested.filter->isEmpty(), | [],
+                              | ^M2MSqlColumn(path = $path->concatenate('m2mFilter'), columnName = filterColumnName($path),
+                                              transform = buildColumnLambda($rootSrcClass, substituteSourceVariable($nested.filter->toOne(), $expr)->nullSafeFilter())));
               ^M2MSqlProjection
               (
-                columns   = $sub.columns,
+                columns   = $sub.columns->concatenate($filter),
                 presences = ^M2MSqlPresenceColumn(columnName = presenceColumnName($path), sourcePath = $expr->sourceJsonPath()->joinStrings('.'))->concatenate($sub.presences),
                 arrays    = $sub.arrays
               );
@@ -396,7 +407,7 @@ function <<access.private>> meta::relational::m2mSql::nullSafeFilter(vs:ValueSpe
     sfe:SimpleFunctionExpression[1] |
       let params  = $sfe.parametersValues->evaluateAndDeactivate()->map(p | $p->nullSafeFilter());
       let rebuilt = ^$sfe(parametersValues = $params)->evaluateAndDeactivate();
-      if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | $p.multiplicity->getLowerBound() == 0),
+      if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | $p->mayBeEmpty()),
          | let a = $params->at(0);
            let b = $params->at(1);
            booleanCall(if_Boolean_1__Function_1__Function_1__T_m_, 'if',
@@ -405,6 +416,17 @@ function <<access.private>> meta::relational::m2mSql::nullSafeFilter(vs:ValueSpe
                         $rebuilt->zeroParameterLambdaValue(Boolean)]);,
          | $rebuilt);,
     v:ValueSpecification[1] | $v
+  ]);
+}
+
+// Whether an operand can be empty on the Java path: an optional value, or a property read through an
+// optional object ($src.address.city with address [0..1] is empty when the address is, though city is [1]).
+function <<access.private>> meta::relational::m2mSql::mayBeEmpty(vs:ValueSpecification[1]):Boolean[1]
+{
+  ($vs.multiplicity->getLowerBound() == 0) || $vs->match(
+  [
+    sfe:SimpleFunctionExpression[1] | $sfe.func->instanceOf(Property) && $sfe.parametersValues->evaluateAndDeactivate()->exists(p | $p->mayBeEmpty()),
+    v:ValueSpecification[1]         | false
   ]);
 }
 
@@ -566,7 +588,9 @@ function <<access.private>> meta::relational::m2mSql::buildJsonDocumentExpressio
                        (
                          name       = 'if',
                          parameters = [
-                                        m2mSqlColumnReference(presenceColumnName($path)),
+                                        if($columns->exists(c | $c.columnName == filterColumnName($path)),
+                                           | ^DynaFunction(name = 'and', parameters = [m2mSqlColumnReference(presenceColumnName($path)), m2mSqlColumnReference(filterColumnName($path))])->cast(@RelationalOperationElement),
+                                           | m2mSqlColumnReference(presenceColumnName($path))),
                                         buildJsonDocumentExpression($pt->cast(@GraphFetchTree), $path, $columns, $arrays),
                                         ^Literal(value = ^meta::relational::metamodel::SQLNull())
                                       ]

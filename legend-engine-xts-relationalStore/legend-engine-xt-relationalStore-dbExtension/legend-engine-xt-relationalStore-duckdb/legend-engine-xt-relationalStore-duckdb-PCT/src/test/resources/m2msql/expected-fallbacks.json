@@ -1,9 +1,5 @@
 [
   {
-    "case": "rootFilterDeepNavigation",
-    "reason": "root filter is not translatable to the source"
-  },
-  {
     "case": "multiplicityCoercion",
     "reason": "collection property aliases is not mapped from a to-many source property of its own type"
   },
@@ -21,7 +17,7 @@
   },
   {
     "case": "toManyComplexComputed",
-    "reason": "computed property street on a nested class mapping not yet translated"
+    "reason": "computed property street inside a to-many complex property not yet translated"
   },
   {
     "case": "dateTimes",

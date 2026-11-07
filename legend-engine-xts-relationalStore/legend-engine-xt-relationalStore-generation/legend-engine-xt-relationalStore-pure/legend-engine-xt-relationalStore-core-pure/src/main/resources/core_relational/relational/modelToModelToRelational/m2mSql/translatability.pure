@@ -46,13 +46,14 @@ function meta::relational::m2mSql::canPlanM2MSql(setImpl:PureInstanceSetImplemen
 // properties the target tree actually selects: a non-local-property set implementation, whose
 // filter (if any) is translatable, is a prerequisite for translating anything reachable through it.
 // `isRoot` is true only for the set implementation at the root of the target tree.
-function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImplementation[1], isRoot:Boolean[1]):String[*]
+// `filterAllowed` is true where a ~filter on `setImpl` is translated: at the root (a WHERE), and for a
+// nested to-one optional property outside any array element, where the Java path leaves an object that
+// fails the filter out (the property is null) and the projection does the same with a filter column.
+function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImplementation[1], filterAllowed:Boolean[1]):String[*]
 {
   let filterReasons = if($setImpl.filter->isEmpty(),
      | [],
-     // A nested set's ~filter semantics on the Java graph fetch path have not been verified against
-     // the SQL projection, so only the root set's filter is pushed down.
-     | if(!$isRoot,
+     | if(!$filterAllowed,
           | ['mapping filter not yet translated'],
           {|
             let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
@@ -75,12 +76,19 @@ function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImple
 
 function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1]):String[*]
 {
-  let rootReasons = $setImpl->rootLevelReasons($isRoot)->concatenate($setImpl->meta::relational::m2mSql::explodeShapeReasons($tree, $isRoot));
+  meta::relational::m2mSql::untranslatableReasons($setImpl, $tree, $mapping, $isRoot, false, $isRoot);
+}
+
+// `inElement` is true below a to-many complex property, whose elements are built with list_transform
+// and so only take plain navigations; `filterAllowed` as for rootLevelReasons.
+function meta::relational::m2mSql::untranslatableReasons(setImpl:PureInstanceSetImplementation[1], tree:GraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1], inElement:Boolean[1], filterAllowed:Boolean[1]):String[*]
+{
+  let rootReasons = $setImpl->rootLevelReasons($filterAllowed)->concatenate($setImpl->meta::relational::m2mSql::explodeShapeReasons($tree, $isRoot));
   if($rootReasons->isNotEmpty(),
      | $rootReasons->at(0),
      | if($tree.subTypeTrees->isNotEmpty(),
           | ['subType graph fetch trees not yet translated'],
-          | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping, $isRoot))
+          | $tree.propertyTrees()->map(pt | meta::relational::m2mSql::untranslatablePropertyReasons($setImpl, $pt, $mapping, $isRoot, $inElement))
          )
     );
 }
@@ -112,7 +120,7 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
 }
 
 // `isRoot` is true when `setImpl` is the set implementation at the root of the target tree.
-function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1]):String[*]
+function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureInstanceSetImplementation[1], propertyTree:PropertyGraphFetchTree[1], mapping:Mapping[1], isRoot:Boolean[1], inElement:Boolean[1]):String[*]
 {
   let shapeReasons = meta::relational::m2mSql::propertyShapeReasons($propertyTree);
   if($shapeReasons->isNotEmpty(),
@@ -121,7 +129,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
        let propertyMappings = $setImpl->propertyMappingsByPropertyName($propertyTree.property.name->toOne())
                                        ->filter(pm | $pm->instanceOf(PurePropertyMapping))
                                        ->cast(@PurePropertyMapping);
-       let transformerReasons = meta::relational::m2mSql::enumTransformerReasons($propertyMappings, $propertyTree, $isRoot);
+       let transformerReasons = meta::relational::m2mSql::enumTransformerReasons($propertyMappings, $propertyTree, $inElement);
        if($propertyMappings->isEmpty(),
           // The Java path only passes a property through unmapped when it is data-typed; a complex
           // property with no property mapping is left empty there, whatever the source class has under
@@ -150,7 +158,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                       if($transformReasons->isNotEmpty(),
                          | $transformReasons->map(r | 'unsupported transform for property ' + $propertyTree.property.name->toOne() + ': ' + $r),
                          | if($propertyTree.subTrees->isEmpty(),
-                              | meta::relational::m2mSql::mappedLeafReasons($propertyMappings->at(0), $propertyTree, $isRoot),
+                              | meta::relational::m2mSql::mappedLeafReasons($propertyMappings->at(0), $propertyTree, $inElement),
                               {|
                                 // A complex property's transform has to be a plain chain of source property
                                 // accesses, because the SQL projection derives the subtree's presence check
@@ -174,7 +182,12 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                           let nestedSetImpl = meta::relational::m2mSql::resolveNestedSetImplementation($propertyMappings->at(0), $mapping);
                                           if($nestedSetImpl->isEmpty(),
                                              | [('nested mapping for property ' + $propertyTree.property.name->toOne() + ' could not be resolved')],
-                                             | meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping, false)
+                                             // A to-many property's elements, and everything inside one, are built by
+                                             // list_transform; a to-one optional property outside one may carry a ~filter.
+                                             | let toMany = !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound();
+                                               let elementLevel = $inElement || $toMany;
+                                               meta::relational::m2mSql::untranslatableReasons($nestedSetImpl->toOne(), $propertyTree->cast(@GraphFetchTree), $mapping, false, $elementLevel,
+                                                                                               !$elementLevel && ($propertyTree.property.multiplicity->getLowerBound() == 0));
                                             );
                                         }
                                        )
@@ -193,19 +206,19 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
 
 // What a mapped primitive leaf's transform has to look like beyond being whitelisted, because the inner
 // query extracts each source property by that property's own shape:
-// - below the root a leaf is read by navigating the nested JSON object, and only a plain navigation is
-//   proven to read it as the Java path does (a computed nested leaf has no parity case yet);
+// - inside an array element a leaf is read straight off the element by list_transform, which only a
+//   plain navigation supports (nested to-one objects are projected by the inner query instead);
 // - a collection leaf is a typed list, which only a to-many source property of the same type yields;
 // - a to-one leaf must not read a source collection at all (`$src.names->toOne()` renders as the array).
 // An exploded leaf is exempt: isExplodableSourceCollection has already pinned its shape.
-function <<access.private>> meta::relational::m2mSql::mappedLeafReasons(propertyMapping:PurePropertyMapping[1], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
+function <<access.private>> meta::relational::m2mSql::mappedLeafReasons(propertyMapping:PurePropertyMapping[1], propertyTree:PropertyGraphFetchTree[1], inElement:Boolean[1]):String[*]
 {
   let transform = $propertyMapping.transform.expressionSequence->evaluateAndDeactivate()->toOne();
   let name      = $propertyTree.property.name->toOne();
   if($propertyMapping.explodeProperty == true,
      | [],
-     | if(!$isRoot && !$transform->meta::relational::m2mSql::isPlainSourceNavigation(),
-          | [('computed property ' + $name + ' on a nested class mapping not yet translated')],
+     | if($inElement && !$transform->meta::relational::m2mSql::isPlainSourceNavigation(),
+          | [('computed property ' + $name + ' inside a to-many complex property not yet translated')],
           | if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
                | if($transform->meta::relational::m2mSql::isPlainSourceNavigation() && !$transform.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($transform.genericType.rawType == $propertyTree.property.genericType.rawType),
                     | [],
@@ -295,12 +308,12 @@ function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollecti
 // of the transform's own type -- values of its enumeration (compared by name), strings or integers --
 // because that is how the Java path looks them up: a value of another type never matches there, where
 // a comparison by name or text would.
-function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(propertyMappings:PurePropertyMapping[*], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
+function <<access.private>> meta::relational::m2mSql::enumTransformerReasons(propertyMappings:PurePropertyMapping[*], propertyTree:PropertyGraphFetchTree[1], inElement:Boolean[1]):String[*]
 {
   let transformers = $propertyMappings.transformer;
   if($transformers->isEmpty(),
      | [],
-     | if(!$isRoot || ($propertyMappings->size() != 1) || $propertyMappings->exists(pm | $pm.explodeProperty == true) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
+     | if($inElement || ($propertyMappings->size() != 1) || $propertyMappings->exists(pm | $pm.explodeProperty == true) || !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || !$transformers->toOne()->instanceOf(EnumerationMapping),
           | ['enumeration transformer not yet translated'],
           {|
             let sourceValues  = $transformers->toOne()->cast(@EnumerationMapping<Any>).enumValueMappings.sourceValues;
@@ -450,11 +463,11 @@ function <<access.private>> meta::relational::m2mSql::rewriteTargetExpression(vs
     v:VariableExpression[1] | [],
     sfe:SimpleFunctionExpression[1] |
       let params = $sfe.parametersValues->evaluateAndDeactivate();
-      if($sfe.func->instanceOf(Property),
-         // Only direct properties of the root target class: $p.name yes, $p.address.city no.
-         | if(($params->size() == 1) && $params->at(0)->instanceOf(VariableExpression) && ($params->at(0)->cast(@VariableExpression).name == $paramName),
-              | meta::relational::m2mSql::filterableSourceExpression($setImpl, $sfe.func->cast(@Property<Nil,Any|*>), $srcVar),
-              | []),
+      let access = $sfe->meta::relational::m2mSql::propertyAccess();
+      if($access->isNotEmpty(),
+         // A property of the root target class, or of a to-one object reached from it ($p.address.city).
+         | let base = $access->toOne().first->meta::relational::m2mSql::navigateTarget($paramName, $setImpl, $srcVar);
+           if($base->isEmpty(), | [], | meta::relational::m2mSql::filterableSourceExpression($base->toOne().first, $access->toOne().second, $base->toOne().second));,
          {|
            let rewritten = $params->map(p | $p->meta::relational::m2mSql::rewriteTargetExpression($paramName, $setImpl, $srcVar));
            if($rewritten->size() != $params->size(),
@@ -474,12 +487,61 @@ function <<access.private>> meta::relational::m2mSql::rewriteTargetExpression(vs
   ]);
 }
 
+// The class mapping and source expression a target navigation `vs` lands on: the root set and `srcVar`
+// for the lambda parameter itself, then one to-one complex property at a time, composing each level's
+// plain-navigation transform. [] for anything else: to-many, enumeration-mapped, unmapped, or a nested
+// set with its own ~filter (the Java path would see an empty object there, the source does not).
+function <<access.private>> meta::relational::m2mSql::navigateTarget(vs:ValueSpecification[1], paramName:String[1], setImpl:PureInstanceSetImplementation[1], srcVar:ValueSpecification[1]):Pair<PureInstanceSetImplementation, ValueSpecification>[0..1]
+{
+  $vs->match(
+  [
+    v:VariableExpression[1] | if($v.name == $paramName, | pair($setImpl, $srcVar), | []),
+    sfe:SimpleFunctionExpression[1] |
+      let access = $sfe->meta::relational::m2mSql::propertyAccess();
+      let base   = if($access->isEmpty(), | [], | $access->toOne().first->meta::relational::m2mSql::navigateTarget($paramName, $setImpl, $srcVar));
+      if($base->isEmpty(),
+         | [],
+         {|
+           let property = $access->toOne().second;
+           let set      = $base->toOne().first;
+           let pms      = $set->meta::relational::m2mSql::purePropertyMappingsFor($property.name->toOne());
+           if(($pms->size() != 1) || !$property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() || $pms->toOne().transformer->isNotEmpty()
+                || !$pms->toOne().transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isPlainSourceNavigation(),
+              | [],
+              {|
+                let nested = meta::relational::m2mSql::resolveNestedSetImplementation($pms->toOne(), $set.parent);
+                if($nested->isEmpty() || $nested->toOne().filter->isNotEmpty(),
+                   | [],
+                   | pair($nested->toOne(), meta::relational::m2mSql::substituteSourceVariable($pms->toOne().transform, $base->toOne().second)));
+              });
+         });,
+    a:ValueSpecification[1] | []
+  ]);
+}
+
+// The receiver and property of a property access. Pure compiles a property read on a receiver that is
+// not exactly [1] ($p.address.city with address [0..1]) as `map(receiver, v_automap | $v_automap.city)`.
+function <<access.private>> meta::relational::m2mSql::propertyAccess(sfe:SimpleFunctionExpression[1]):Pair<ValueSpecification, Property<Nil,Any|*>>[0..1]
+{
+  let params = $sfe.parametersValues->evaluateAndDeactivate();
+  if($sfe.func->instanceOf(Property),
+     | if($params->size() == 1, | pair($params->toOne(), $sfe.func->cast(@Property<Nil,Any|*>)), | []),
+     {|
+       let lambda = if(($sfe.functionName == 'map') && ($params->size() == 2) && $params->at(1)->instanceOf(InstanceValue), | $params->at(1)->cast(@InstanceValue).values->evaluateAndDeactivate(), | []);
+       let body   = if(($lambda->size() == 1) && $lambda->toOne()->instanceOf(LambdaFunction), | $lambda->toOne()->cast(@LambdaFunction<Any>).expressionSequence->evaluateAndDeactivate(), | []);
+       let read   = if(($body->size() == 1) && $body->toOne()->instanceOf(SimpleFunctionExpression), | $body->toOne()->cast(@SimpleFunctionExpression), | []);
+       let onVar  = $read->isNotEmpty() && $read->toOne().func->instanceOf(Property)
+                      && $read->toOne().parametersValues->evaluateAndDeactivate()->match([v:VariableExpression[1] | $v.name == 'v_automap', a:Any[*] | false]);
+       if($onVar, | pair($params->at(0), $read->toOne().func->cast(@Property<Nil,Any|*>)), | []);
+     });
+}
+
 // A target property's source expression is only a faithful stand-in for the property's value when the
 // value is the transform's result as is: a to-one primitive, mapped by exactly one plain property
 // mapping, or auto-mapped the way the M2M store contract auto-maps (by name and type: an unmapped
 // property whose same-named source property has another type is empty on the target). An enumeration
 // transformer or an explode mapping changes the value or the row it belongs to after the transform has run.
-function <<access.private>> meta::relational::m2mSql::filterableSourceExpression(setImpl:PureInstanceSetImplementation[1], property:Property<Nil,Any|*>[1], srcVar:VariableExpression[1]):ValueSpecification[0..1]
+function <<access.private>> meta::relational::m2mSql::filterableSourceExpression(setImpl:PureInstanceSetImplementation[1], property:Property<Nil,Any|*>[1], srcVar:ValueSpecification[1]):ValueSpecification[0..1]
 {
   let type = $property.genericType.rawType;
   let pms  = $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($property.name->toOne());

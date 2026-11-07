@@ -955,15 +955,15 @@ function <<test.Test>> meta::relational::m2mSql::tests::testUntranslatableMappin
   assertEquals('unsupported mapping filter: unsupported function in transform: trim', $result.reason->orElse('<none>'));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testNestedMappingFilterIsNotTranslatable():Boolean[1]
+// The nested set's ~filter on an optional property: an object that fails it is left out, as on the Java path.
+function <<test.Test>> meta::relational::m2mSql::tests::testNestedMappingFilterIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::nestedFilter::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::nestedFilter::Person)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::nestedFilter::Person{name, address{city}}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable);
-  assertEquals('mapping filter not yet translated', $result.reason->orElse('<none>'));
+  assert($result.translatable, | 'expected a nested ~filter on an optional property to be translatable, got: ' + $result.reason->orElse(''));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerIsTranslatable():Boolean[1]
@@ -1222,13 +1222,14 @@ function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnComputed
   assertEquals(['$src', 'firstName', '$src', 'lastName'], $rewritten->toOne()->meta::relational::m2mSql::tests::propertiesAndVariables());
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterThroughComplexPropertyIsNotRewritten():Boolean[1]
+// Each level's plain-navigation transform is composed: $p.address.city becomes $src.address.city.
+function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterThroughComplexPropertyIsRewritten():Boolean[1]
 {
   let rewritten = meta::relational::m2mSql::tests::rewriteRootFilter(
                     {p:meta::relational::m2mSql::tests::nestedComplexToOne::Person[1] | $p.address.city == 'NYC'},
                     meta::relational::m2mSql::tests::nestedComplexToOne::TestMapping,
                     meta::relational::m2mSql::tests::nestedComplexToOne::Person);
-  assertEmpty($rewritten);
+  assertEquals(['$src', 'address', 'city'], $rewritten->toOne()->meta::relational::m2mSql::tests::propertiesAndVariables());
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterWithUnwhitelistedFunctionIsNotRewritten():Boolean[1]
@@ -1277,15 +1278,14 @@ function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationLiteralIs
 }
 
 // Below the root the leaf reaches the outer query as JSON, not as the scalar the CASE compares against.
-function <<test.Test>> meta::relational::m2mSql::tests::testNestedEnumTransformerIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testNestedEnumTransformerIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::nestedEnumTransform::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::nestedEnumTransform::Holder)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::nestedEnumTransform::Holder{item{color}}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable);
-  assertEquals('enumeration transformer not yet translated', $result.reason->orElse('<none>'));
+  assert($result.translatable, | 'expected an enumeration mapping in a nested to-one object to be translatable, got: ' + $result.reason->orElse(''));
 }
 
 function meta::relational::m2mSql::tests::explodeVerdict(mapping:Mapping[1], targetClass:Class<Any>[1], tree:RootGraphFetchTree<Any>[1]):meta::relational::m2mSql::M2MSqlTranslatability[1]
@@ -1384,9 +1384,10 @@ function <<test.Test>> meta::relational::m2mSql::tests::testEnumTransformerOverM
 }
 
 // Below the root a leaf is read as JSON, which only a plain navigation leaves intact.
-function <<test.Test>> meta::relational::m2mSql::tests::testComputedPropertyOnNestedSetIsNotTranslatable():Boolean[1]
+// A nested to-one object is projected by the inner query, so a computed leaf in it is translatable.
+function <<test.Test>> meta::relational::m2mSql::tests::testComputedPropertyOnNestedSetIsTranslatable():Boolean[1]
 {
-  assertEquals('computed property label on a nested class mapping not yet translated',
+  assertEquals('<translatable>',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::NestedComputedMapping, #{meta::relational::m2mSql::tests::review::Outer{inner{label}}}#->cast(@RootGraphFetchTree<Any>)));
 }
 

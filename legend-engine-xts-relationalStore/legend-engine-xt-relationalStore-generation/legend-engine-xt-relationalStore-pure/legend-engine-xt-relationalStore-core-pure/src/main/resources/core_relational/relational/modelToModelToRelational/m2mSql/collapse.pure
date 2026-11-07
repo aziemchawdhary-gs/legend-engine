@@ -197,11 +197,21 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTreeRejecti
   let omitted = $routedTree.propertyTrees()->filter(y | !$serializeTree.propertyTrees()->exists(x | $x.property.name == $y.property.name));
   if(!$verdict.translatable,
      | $verdict.reason,
-     | if($omitted->exists(y | $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($y.property.name->toOne()).transformer->isNotEmpty()),
+     | if($omitted->exists(y | $setImpl->meta::relational::m2mSql::fetchesEnumerationMappedProperty($y)),
           | 'graph fetch tree fetches an enumeration-mapped property the serialize tree omits',
           | []
          )
     );
+}
+
+function <<access.private>> meta::relational::m2mSql::fetchesEnumerationMappedProperty(setImpl:meta::external::store::model::PureInstanceSetImplementation[1], tree:PropertyGraphFetchTree[1]):Boolean[1]
+{
+  let pms = $setImpl->meta::relational::m2mSql::purePropertyMappingsFor($tree.property.name->toOne());
+  $pms.transformer->isNotEmpty()
+    || ($tree.subTrees->isNotEmpty() && $pms->exists(pm |
+         let nested = meta::relational::m2mSql::resolveNestedSetImplementation($pm, $setImpl.parent);
+         $nested->isNotEmpty() && $tree.subTrees->cast(@PropertyGraphFetchTree)->exists(t | $nested->toOne()->meta::relational::m2mSql::fetchesEnumerationMappedProperty($t));
+       ));
 }
 
 // The inner query reads the source document through the synthetic store, which can only extract the
@@ -252,16 +262,16 @@ function <<access.private>> meta::relational::m2mSql::m2mSqlSerializeTree(node:P
 // plain tree and the graph fetch tree a routed one, so their printed forms differ and cannot be
 // compared directly.
 //
-// `allowExtraLeaves` lets `b` (the graph fetch tree) carry primitive leaves at this level that `a` (the
-// serialize tree) does not: the router adds the properties a root `filter()` reads to the fetch tree,
-// and moves the ones it reads to the end. So properties are matched by name rather than by position;
+// `allowExtraProperties` lets `b` (the graph fetch tree) carry properties at this level that `a` (the
+// serialize tree) does not: the router adds what a root `filter()` reads to the fetch tree (a leaf, or
+// a complex property with the leaves read through it), and moves the ones it reads to the end. So properties are matched by name rather than by position;
 // the document's order is the serialize tree's, which is what it is projected from. Whether leaving a
 // fetched leaf out of the document is safe is m2mSqlSerializeTreeRejection's to decide. It is only
 // ever passed for the root level, which is the only level a root filter is rewritten for.
-function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1], allowExtraLeaves:Boolean[1]):Boolean[1]
+function <<access.private>> meta::relational::m2mSql::sameTreeShape(a:GraphFetchTree[1], b:GraphFetchTree[1], allowExtraProperties:Boolean[1]):Boolean[1]
 {
   let aProperties = $a.propertyTrees();
-  let bProperties = $b.propertyTrees()->filter(y | !$allowExtraLeaves || $y.subTrees->isNotEmpty() || $aProperties->exists(x | ($x.property.name == $y.property.name) && ($x.alias == $y.alias)));
+  let bProperties = $b.propertyTrees()->filter(y | !$allowExtraProperties || $aProperties->exists(x | ($x.property.name == $y.property.name) && ($x.alias == $y.alias)));
   ($a.subTypeTrees->isEmpty() && $b.subTypeTrees->isEmpty())
     && ($a->m2mSqlTreeClass() == $b->m2mSqlTreeClass())
     && ($aProperties->size() == $bProperties->size())

@@ -1851,6 +1851,121 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05.123\"},{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05\"},{\"born\":\"2000-01-01\",\"seen\":null}]}");
     }
 
+    // Below the root: a computed leaf and an enumeration mapping inside a nested object; a root filter
+    // through the nested object; and the nested class mapping's own ~filter.
+    private static final String NESTED_GRAMMAR =
+            "Enum m2msql::nested::Kind\n" +
+            "{\n" +
+            "   HOME, WORK\n" +
+            "}\n" +
+            "Enum m2msql::nested::S_Kind\n" +
+            "{\n" +
+            "   H, W\n" +
+            "}\n" +
+            "Class m2msql::nested::Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "   label: String[1];\n" +
+            "   kind: m2msql::nested::Kind[0..1];\n" +
+            "}\n" +
+            "Class m2msql::nested::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::nested::Address[0..1];\n" +
+            "}\n" +
+            "Class m2msql::nested::S_Address\n" +
+            "{\n" +
+            "   city: String[1];\n" +
+            "   country: String[1];\n" +
+            "   kind: m2msql::nested::S_Kind[0..1];\n" +
+            "}\n" +
+            "Class m2msql::nested::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   address: m2msql::nested::S_Address[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::nested::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::nested::S_Person\n" +
+            "      name: $src.name,\n" +
+            "      address: $src.address\n" +
+            "   }\n" +
+            "   *m2msql::nested::Address: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::nested::S_Address\n" +
+            "${ADDRESS_FILTER}\n" +
+            "      city: $src.city,\n" +
+            "      label: $src.city + ', ' + $src.country,\n" +
+            "      kind: EnumerationMapping kindMapping: $src.kind\n" +
+            "   }\n" +
+            "   m2msql::nested::Kind: EnumerationMapping kindMapping\n" +
+            "   {\n" +
+            "      HOME: [m2msql::nested::S_Kind.H],\n" +
+            "      WORK: [m2msql::nested::S_Kind.W]\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::nested::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\",\"country\":\"US\",\"kind\":\"H\"}},{\"name\":\"Hans\",\"address\":{\"city\":\"X\",\"country\":\"DE\"}},{\"name\":\"Joe\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String NESTED_QUERY = "|m2msql::nested::Person.all()->graphFetch(#{m2msql::nested::Person{name,address{label,kind}}}#)->serialize(#{m2msql::nested::Person{name,address{label,kind}}}#)";
+    private static final String NESTED_FILTER_QUERY = "|m2msql::nested::Person.all()->filter(p | $p.address.city == 'NYC')->graphFetch(#{m2msql::nested::Person{name}}#)->serialize(#{m2msql::nested::Person{name}}#)";
+    private static final String NESTED_PLAIN_QUERY = "|m2msql::nested::Person.all()->graphFetch(#{m2msql::nested::Person{name,address{city}}}#)->serialize(#{m2msql::nested::Person{name,address{city}}}#)";
+
+    @Test
+    void nestedComputedAndEnum()
+    {
+        assertParity("nestedComputedAndEnum", NESTED_GRAMMAR.replace("${ADDRESS_FILTER}\n", ""), NESTED_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"address\":{\"label\":\"NYC, US\",\"kind\":\"HOME\"}},{\"name\":\"Hans\",\"address\":{\"label\":\"X, DE\",\"kind\":null}},{\"name\":\"Joe\",\"address\":null}]}");
+    }
+
+    @Test
+    void rootFilterNestedNavigation()
+    {
+        assertParity("rootFilterNestedNavigation", NESTED_GRAMMAR.replace("${ADDRESS_FILTER}\n", ""), NESTED_FILTER_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"name\":\"Jane\"}}");
+    }
+
+    // A negated filter through the optional object: Joe has no address, so on the Java path the city is
+    // empty, the equality false and the negation true; the equality must not come out NULL in SQL.
+    @Test
+    void rootFilterNestedNegated()
+    {
+        assertParity("rootFilterNestedNegated", NESTED_GRAMMAR.replace("${ADDRESS_FILTER}\n", ""),
+                "|m2msql::nested::Person.all()->filter(p | !($p.address.city == 'X'))->graphFetch(#{m2msql::nested::Person{name}}#)->serialize(#{m2msql::nested::Person{name}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\"},{\"name\":\"Joe\"}]}");
+    }
+
+    // The nested class mapping's own ~filter: an object that fails it is left out, so the optional
+    // property is null while the parent is kept.
+    @Test
+    void nestedMappingFilter()
+    {
+        assertParity("nestedMappingFilter", NESTED_GRAMMAR.replace("${ADDRESS_FILTER}", "      ~filter $src.city != 'X'"), NESTED_PLAIN_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"address\":{\"city\":\"NYC\"}},{\"name\":\"Hans\",\"address\":null},{\"name\":\"Joe\",\"address\":null}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;
