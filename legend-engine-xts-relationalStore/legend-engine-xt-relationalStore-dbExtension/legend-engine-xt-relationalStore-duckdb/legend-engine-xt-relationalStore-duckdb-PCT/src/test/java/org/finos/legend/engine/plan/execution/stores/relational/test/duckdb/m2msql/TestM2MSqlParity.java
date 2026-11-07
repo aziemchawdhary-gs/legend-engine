@@ -47,6 +47,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -1496,9 +1497,6 @@ public class TestM2MSqlParity
     private static final String STRINGS_GRAMMAR =
             "Class m2msql::strings::Item\n" +
             "{\n" +
-            "   upper: String[1];\n" +
-            "   lower: String[1];\n" +
-            "   len: Integer[1];\n" +
                         "   rep: String[1];\n" +
             "   isA: Boolean[1];\n" +
             "   endsN: Boolean[1];\n" +
@@ -1517,9 +1515,6 @@ public class TestM2MSqlParity
             "   *m2msql::strings::Item: Pure\n" +
             "   {\n" +
             "      ~src m2msql::strings::S_Item\n" +
-            "      upper: $src.name->toUpper(),\n" +
-            "      lower: $src.name->toLower(),\n" +
-            "      len: $src.name->length(),\n" +
                         "      rep: $src.name->replace('n', 'N'),\n" +
             "      isA: $src.name->startsWith('A'),\n" +
             "      endsN: $src.name->endsWith('n'),\n" +
@@ -1549,7 +1544,7 @@ public class TestM2MSqlParity
             "}\n";
 
     private static final String STRINGS_QUERY =
-            "|m2msql::strings::Item.all()->graphFetch(#{m2msql::strings::Item{upper,lower,len,rep,isA,endsN,hasNn,num}}#)->serialize(#{m2msql::strings::Item{upper,lower,len,rep,isA,endsN,hasNn,num}}#)";
+            "|m2msql::strings::Item.all()->graphFetch(#{m2msql::strings::Item{rep,isA,endsN,hasNn,num}}#)->serialize(#{m2msql::strings::Item{rep,isA,endsN,hasNn,num}}#)";
 
     private static final String STRINGS_URL = "data:application/json,[{\"name\":\"Anna\",\"n\":7},{\"name\":\"\u00e9lan\",\"n\":-1}]";
 
@@ -1558,8 +1553,8 @@ public class TestM2MSqlParity
     {
         assertParity("stringFunctions", STRINGS_GRAMMAR.replace("${URL}", STRINGS_URL), STRINGS_QUERY,
                 "{\"builder\":{\"_type\":\"json\"},\"values\":["
-                + "{\"upper\":\"ANNA\",\"lower\":\"anna\",\"len\":4,\"rep\":\"ANNa\",\"isA\":true,\"endsN\":false,\"hasNn\":true,\"num\":\"7\"},"
-                + "{\"upper\":\"\u00c9LAN\",\"lower\":\"\u00e9lan\",\"len\":4,\"rep\":\"\u00e9laN\",\"isA\":false,\"endsN\":true,\"hasNn\":false,\"num\":\"-1\"}]}");
+                + "{\"rep\":\"ANNa\",\"isA\":true,\"endsN\":false,\"hasNn\":true,\"num\":\"7\"},"
+                + "{\"rep\":\"\u00e9laN\",\"isA\":false,\"endsN\":true,\"hasNn\":false,\"num\":\"-1\"}]}");
     }
 
     // substring stays on the Java path: the DuckDB dialect's rendering has SQL's 1-based start and a
@@ -2049,5 +2044,142 @@ public class TestM2MSqlParity
                 EXPLODE_MAPPING_GRAMMAR.replace("${URL}", "data:application/json,[{\"id\":\"i1\",\"tags\":[\"a\",\"b\"]},{\"id\":\"i2\",\"tags\":[]},{\"id\":\"i3\",\"tags\":[\"c\"]}]"),
                 EXPLODE_MAPPING_SIBLING_QUERY,
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"item\":\"i1\",\"name\":\"a\"},{\"item\":\"i1\",\"name\":\"b\"},{\"item\":\"i3\",\"name\":\"c\"}]}");
+    }
+
+    // One target property computed from a source class given per case, for the shapes where the SQL
+    // and Java paths could disagree on a single value.
+    private static String probeGrammar(String sourceProperties, String targetType, String filter, String transform, String url)
+    {
+        return "Class m2msql::probe::Obj\n" +
+                "{\n" +
+                "   x: String[1];\n" +
+                "}\n" +
+                "Class m2msql::probe::S_Item\n" +
+                "{\n" +
+                sourceProperties +
+                "}\n" +
+                "Class m2msql::probe::Item\n" +
+                "{\n" +
+                "   v: " + targetType + "[1];\n" +
+                "}\n" +
+                "\n" +
+                "###Mapping\n" +
+                "Mapping test::mapping\n" +
+                "(\n" +
+                "   *m2msql::probe::Item: Pure\n" +
+                "   {\n" +
+                "      ~src m2msql::probe::S_Item\n" +
+                filter +
+                "      v: " + transform + "\n" +
+                "   }\n" +
+                ")\n" +
+                "\n" +
+                "###Connection\n" +
+                "${CONNECTION_TYPE} test::conn\n" +
+                "{\n" +
+                "  class: m2msql::probe::S_Item;\n" +
+                "  url: 'data:application/json," + url + "';\n" +
+                "}\n" +
+                "\n" +
+                "###Runtime\n" +
+                "Runtime test::runtime\n" +
+                "{\n" +
+                "  mappings: [test::mapping];\n" +
+                "  connections:\n" +
+                "  [\n" +
+                "    ModelStore:\n" +
+                "    [\n" +
+                "      id1: test::conn\n" +
+                "    ]\n" +
+                "  ];\n" +
+                "}\n";
+    }
+
+    private static final String PROBE_QUERY = "|m2msql::probe::Item.all()->graphFetch(#{m2msql::probe::Item{v}}#)->serialize(#{m2msql::probe::Item{v}}#)";
+
+    private static String probeValues(String... values)
+    {
+        String documents = String.join(",", Arrays.stream(values).map(v -> "{\"v\":" + v + "}").toArray(String[]::new));
+        return "{\"builder\":{\"_type\":\"json\"},\"values\":" + (values.length == 1 ? documents : "[" + documents + "]") + "}";
+    }
+
+    // The relational LIKE rendering escapes _ and % with a backslash but declares no ESCAPE character,
+    // which DuckDB does not default to.
+    @Test
+    void likePatternWildcards()
+    {
+        assertParity("likePatternWildcards",
+                probeGrammar("   b: String[1];\n", "Boolean", "", "$src.b->startsWith('A_') || $src.b->contains('%')", "[{\"b\":\"A_1\"},{\"b\":\"AB1\"},{\"b\":\"50%25\"}]"),
+                PROBE_QUERY, probeValues("true", "false", "true"));
+    }
+
+    @Test
+    void likePatternFromProperty()
+    {
+        assertParity("likePatternFromProperty",
+                probeGrammar("   b: String[1];\n   c: String[1];\n", "Boolean", "", "$src.b->contains($src.c)", "[{\"b\":\"NYC, US\",\"c\":\"NYC\"},{\"b\":\"X\",\"c\":\"Y\"}]"),
+                PROBE_QUERY, probeValues("true", "false"));
+    }
+
+    @Test
+    void isNotEmptyOnObject()
+    {
+        assertParity("isNotEmptyOnObject",
+                probeGrammar("   obj: m2msql::probe::Obj[0..1];\n", "Boolean", "", "$src.obj->isNotEmpty()", "[{\"obj\":{\"x\":\"a\"}},{}]"),
+                PROBE_QUERY, probeValues("true", "false"));
+    }
+
+    // Java maps case per code point with full case folding (ß to SS) and counts UTF-16 units; DuckDB does neither.
+    @Test
+    void caseMappingAndLength()
+    {
+        assertParity("caseMappingAndLength",
+                probeGrammar("   b: String[1];\n", "String", "", "$src.b->toUpper() + ':' + $src.b->length()->toString()", "[{\"b\":\"straße\"},{\"b\":\"a😀b\"}]"),
+                PROBE_QUERY, probeValues("\"STRASSE:6\"", "\"A😀B:4\""));
+    }
+
+    @Test
+    void floatToString()
+    {
+        assertParity("floatToString",
+                probeGrammar("   f: Float[1];\n", "String", "", "$src.f->toString()", "[{\"f\":1e-7}]"),
+                PROBE_QUERY, probeValues("\"0.0000001\""));
+    }
+
+    @Test
+    void replaceEmptySearch()
+    {
+        assertParity("replaceEmptySearch",
+                probeGrammar("   b: String[1];\n", "String", "", "$src.b->replace('', '-')", "[{\"b\":\"abc\"}]"),
+                PROBE_QUERY, probeValues("\"-a-b-c-\""));
+    }
+
+    @Test
+    void ifBranchEquality()
+    {
+        assertParity("ifBranchEquality",
+                probeGrammar("   age: Integer[1];\n   a: String[0..1];\n", "Boolean", "", "if($src.age > 18, |$src.a == 'Boss', |false)", "[{\"age\":30},{\"age\":30,\"a\":\"Boss\"},{\"age\":10}]"),
+                PROBE_QUERY, probeValues("false", "true", "false"));
+    }
+
+    @Test
+    void dateTimeLiteralFilter()
+    {
+        assertParity("dateTimeLiteralFilter",
+                probeGrammar("   b: String[1];\n   d: StrictDate[1];\n", "String", "      ~filter $src.d == %2020-01-01T00:00:00\n", "$src.b", "[{\"b\":\"x\",\"d\":\"2020-01-01\"}]"),
+                PROBE_QUERY, probeValues());
+    }
+
+    // toOne of an absent value is an error on the Java path; it must not become a null in SQL.
+    @Test
+    void toOneOfAbsentValue()
+    {
+        String grammar = probeGrammar("   a: String[0..1];\n", "Boolean", "", "$src.a->toOne() == 'Boss'", "[{\"a\":\"Boss\"},{}]");
+
+        assertThrows(RuntimeException.class, () -> execute(grammar.replace("${CONNECTION_TYPE}", "JsonModelConnection"), PROBE_QUERY));
+
+        SingleExecutionPlan sqlPlan = compileAndPlan(grammar.replace("${CONNECTION_TYPE}", "SqlModelConnection"), PROBE_QUERY);
+        assertPlanShape("toOneOfAbsentValue", sqlPlan);
+        assertThrows(RuntimeException.class, () -> runPlan(sqlPlan));
     }
 }

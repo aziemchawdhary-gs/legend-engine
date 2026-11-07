@@ -26,5 +26,37 @@
   {
     "case": "collectionFilter",
     "reason": "unsupported mapping filter: the filter reads a source collection"
+  },
+  {
+    "case": "likePatternWildcards",
+    "reason": "unsupported transform for property v: startsWith is only translated for a literal pattern without _, % or \\"
+  },
+  {
+    "case": "likePatternFromProperty",
+    "reason": "unsupported transform for property v: contains is only translated for a literal pattern without _, % or \\"
+  },
+  {
+    "case": "isNotEmptyOnObject",
+    "reason": "unsupported transform for property v: isNotEmpty of a class-typed value is not translated"
+  },
+  {
+    "case": "caseMappingAndLength",
+    "reason": "unsupported transform for property v: unsupported function in transform: toUpper"
+  },
+  {
+    "case": "floatToString",
+    "reason": "unsupported transform for property v: toString is only translated for an Integer"
+  },
+  {
+    "case": "replaceEmptySearch",
+    "reason": "unsupported transform for property v: replace is only translated for a non-empty literal search string"
+  },
+  {
+    "case": "dateTimeLiteralFilter",
+    "reason": "unsupported mapping filter: literal type not yet translated"
+  },
+  {
+    "case": "toOneOfAbsentValue",
+    "reason": "unsupported transform for property v: toOne of a possibly-empty value is not translated"
   }
 ]

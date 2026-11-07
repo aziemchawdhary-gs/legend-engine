@@ -210,12 +210,15 @@ Translated (phase 3 additions marked):
   functions in `sqlTranslatableFunctionWhitelist()`; auto-mapped primitive properties; to-one
   complex properties whose transform is a plain source navigation.
 - *(phase 3)* **Conditionals and Boolean values**: `if` (its condition may compare and combine like a
-  filter; both branches are lambdas checked like any transform), `isEmpty`/`isNotEmpty`, and a
+  filter; both branches are lambdas checked like any transform), `isEmpty`/`isNotEmpty` of a
+  primitive or enumeration value, and a
   Boolean-typed leaf computed from `sqlTranslatableFilterFunctions()` (`isBoss: $src.title ==
   'Boss'`). Every equality with a side that may be empty is spelled out null-safely (see Section 6),
   so an absent operand gives the Java path's `false`, not SQL `NULL`.
-- *(phase 3)* **String functions**: `toUpper`, `toLower`, `length`, `replace`, `startsWith`,
-  `endsWith`, `contains` and `toString`.
+- *(phase 3)* **String functions**, each only for the operands whose SQL matches the Java path:
+  `startsWith`, `endsWith` and `contains` with a literal pattern free of `_`, `%` and `\` (the
+  relational LIKE rendering escapes those without an `ESCAPE` clause), `replace` with a non-empty
+  literal search string, and `toString` of an `Integer`.
 - *(phase 3)* **Scalar types**: `String`, `Integer` (extracted as 64-bit `BIGINT`), `Float`
   (`DOUBLE`), `Boolean`, `StrictDate` (`DATE`, printed `yyyy-MM-dd` on both paths) and enumerations.
 - *(phase 3)* **Primitive collections** of `String`, `Integer`, `Float` and `Boolean`, mapped straight
@@ -244,8 +247,17 @@ Translated (phase 3 additions marked):
 
 Rejected (fall back to Java):
 
-- Any function off the whitelist. `substring` in particular: DuckDB's rendering is 1-based with a
-  length, Pure's is 0-based with an end index (pinned by `stringFunctionsUnsupported`).
+- Any function off the whitelist. `substring`: DuckDB's rendering is 1-based with a length, Pure's
+  is 0-based with an end index (`stringFunctionsUnsupported`). `toUpper`/`toLower`: Java maps `ß` to
+  `SS` and follows the JVM locale; `length`: Java counts UTF-16 units (`caseMappingAndLength`).
+- A whitelisted function outside its proven operands (`explainUntranslatableOperands`): a pattern
+  that is not a plain literal (`likePatternWildcards`, `likePatternFromProperty`), `replace` with an
+  empty or non-literal search string (`replaceEmptySearch`), `toString` of anything but an `Integer`
+  (a `Float` prints with an exponent in DuckDB; `floatToString`), `isEmpty`/`isNotEmpty` of a
+  class-typed value (`isNotEmptyOnObject`), and `toOne` of a possibly-empty value, which is an error
+  on the Java path and a `NULL` in SQL (`toOneOfAbsentValue`).
+- A literal of a type outside the proven ones (`%2020-01-01T00:00:00` compares as a `TIMESTAMP`
+  against a `DATE` in SQL; `dateTimeLiteralFilter`).
 - **Operations on a source collection** (`filter`, `map`, `size`, `exists`, `joinStrings`, aggregates)
   in a transform, and a mapping `~filter` or rewritten root filter that reads one. A collection is
   extracted as the text of its JSON array, which the relational stack treats as one scalar per row,
@@ -280,7 +292,8 @@ Rejected (fall back to Java):
 `sqlTranslatableFunctionWhitelist()`. It lists exact signatures, not a type×operator matrix:
 `plus` over `String`, `Integer`, `Float` and `Number`; `minus` over `Number`; `times` over `Integer`
 and `Number`; `divide` over `Number`; `toOne`; `if`; `isEmpty`/`isNotEmpty` over `[*]` and `[0..1]`;
-and the string functions listed above. Filters, `if` conditions and Boolean leaves additionally admit
+and the string functions listed above, with the operand rules of
+`explainUntranslatableOperands`. Filters, `if` conditions and Boolean leaves additionally admit
 `sqlTranslatableFilterFunctions()`: `and`, `or`, `not`, `equal`, `lessThan`, `lessThanEqual`,
 `greaterThan` and `greaterThanEqual` (the comparisons over `Number` only). The entries are exactly
 what the parity corpus and the Pure unit tests exercise; extend only when a new translatable parity
@@ -347,7 +360,7 @@ to it.
 `true` the Java path evaluates for `!($x == 'a')`. `nullSafeFilter` rewrites every equality whose side
 may be empty (`mayBeEmpty`: a lower bound of 0, or a property read through a possibly-empty base) as
 `if(isEmpty(a) || isEmpty(b), | isEmpty(a) && isEmpty(b), | a == b)`. It is applied to the mapping and
-root filters, to nested filters, and to every Boolean leaf and `if` condition.
+root filters, to nested filters, and to every Boolean leaf, `if` condition and `if` branch.
 
 **Collections (phase 3).** A to-many primitive leaf is extracted as the text of its JSON array
 (`VARCHAR`, which turns a JSON `null` into SQL `NULL`) and placed in the document as
@@ -429,7 +442,15 @@ asserts:
   { "case": "stringFunctionsUnsupported", "reason": "unsupported transform for property sub: unsupported function in transform: substring" },
   { "case": "toManyComplexComputed",      "reason": "computed property street inside a to-many complex property not yet translated" },
   { "case": "dateTimes",                  "reason": "property type not yet translated: seen" },
-  { "case": "collectionFilter",           "reason": "unsupported mapping filter: the filter reads a source collection" }
+  { "case": "collectionFilter",           "reason": "unsupported mapping filter: the filter reads a source collection" },
+  { "case": "likePatternWildcards",       "reason": "unsupported transform for property v: startsWith is only translated for a literal pattern without _, % or \\" },
+  { "case": "likePatternFromProperty",    "reason": "unsupported transform for property v: contains is only translated for a literal pattern without _, % or \\" },
+  { "case": "isNotEmptyOnObject",         "reason": "unsupported transform for property v: isNotEmpty of a class-typed value is not translated" },
+  { "case": "caseMappingAndLength",       "reason": "unsupported transform for property v: unsupported function in transform: toUpper" },
+  { "case": "floatToString",              "reason": "unsupported transform for property v: toString is only translated for an Integer" },
+  { "case": "replaceEmptySearch",         "reason": "unsupported transform for property v: replace is only translated for a non-empty literal search string" },
+  { "case": "dateTimeLiteralFilter",      "reason": "unsupported mapping filter: literal type not yet translated" },
+  { "case": "toOneOfAbsentValue",         "reason": "unsupported transform for property v: toOne of a possibly-empty value is not translated" }
 ]
 ```
 
@@ -439,7 +460,7 @@ explicit and reviewable, and growing coverage is a two-line diff — implement t
 translation, delete the manifest entry, move the corpus case's assertions from "expect
 fallback" to "expect collapse + parity".
 
-The corpus as of phase 3 (46 cases, 39 collapsed):
+The corpus as of phase 3 (55 cases, 40 collapsed):
 
 | Case | Exercises | Status |
 |---|---|---|
@@ -463,7 +484,16 @@ The corpus as of phase 3 (46 cases, 39 collapsed):
 | `booleanTransform` | a comparison as a property value, absent operand | collapsed |
 | `negatedBooleanTransform` | a negated compound condition as a property value | collapsed |
 | `conditionalTransform` | `if` and `isNotEmpty` in transforms | collapsed |
-| `stringFunctions` | `toUpper`, `toLower`, `length`, `replace`, `startsWith`, `endsWith`, `contains`, `toString`; non-ASCII and negative inputs | collapsed |
+| `stringFunctions` | `replace`, `startsWith`, `endsWith`, `contains`, `toString`; non-ASCII and negative inputs | collapsed |
+| `likePatternWildcards` | `startsWith('A_')`, `contains('%')` | fallback |
+| `likePatternFromProperty` | `contains` with a property as the pattern | fallback |
+| `replaceEmptySearch` | `replace('', '-')` | fallback |
+| `caseMappingAndLength` | `toUpper` of `ß`, `length` of an emoji | fallback |
+| `floatToString` | `toString` of `1e-7` | fallback |
+| `isNotEmptyOnObject` | `isNotEmpty` of an optional object | fallback |
+| `ifBranchEquality` | an equality with an absent operand inside an `if` branch | collapsed |
+| `dateTimeLiteralFilter` | a `DateTime` literal compared with a `StrictDate` | fallback |
+| `toOneOfAbsentValue` | `toOne` of an absent value: both paths fail | fallback |
 | `stringFunctionsUnsupported` | `substring` | fallback |
 | `floatValues` | `Float` pass-through, division, `Float[*]`, `-0.0` and long fractions | collapsed |
 | `floatExplode` | explode of a `Float[*]` | collapsed |

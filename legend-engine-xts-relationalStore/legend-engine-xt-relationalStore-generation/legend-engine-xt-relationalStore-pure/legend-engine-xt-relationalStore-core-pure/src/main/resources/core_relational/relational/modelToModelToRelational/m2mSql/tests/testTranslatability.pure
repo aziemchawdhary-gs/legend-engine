@@ -165,6 +165,8 @@ Class meta::relational::m2mSql::tests::strings::Item
   len: Integer[1];
   has: Boolean[1];
   sub: String[1];
+  wild: Boolean[1];
+  byName: Boolean[1];
 }
 Class meta::relational::m2mSql::tests::strings::S_Item
 {
@@ -341,7 +343,7 @@ Class meta::relational::m2mSql::tests::toOneComplex::S_Address
 }
 Class meta::relational::m2mSql::tests::toOneComplex::S_Person
 {
-  address: meta::relational::m2mSql::tests::toOneComplex::S_Address[0..1];
+  address: meta::relational::m2mSql::tests::toOneComplex::S_Address[1];
 }
 
 // A complex property mapped to the bare source object: the nested target is built from the source
@@ -700,7 +702,9 @@ Mapping meta::relational::m2mSql::tests::strings::TestMapping
     upper: $src.name->toUpper(),
     len: $src.name->length(),
     has: $src.name->contains('nn'),
-    sub: $src.name->substring(1, 3)
+    sub: $src.name->substring(1, 3),
+    wild: $src.name->startsWith('A_'),
+    byName: $src.name->contains($src.name)
   }
 )
 
@@ -1448,7 +1452,23 @@ function <<test.Test>> meta::relational::m2mSql::tests::testNegatedCompoundWithE
 
 function <<test.Test>> meta::relational::m2mSql::tests::testStringFunctionsAreTranslatable():Boolean[1]
 {
-  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{upper, len, has}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('<translatable>', meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{has}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testCaseMappingAndLengthAreNotTranslatable():Boolean[1]
+{
+  assertEquals('unsupported transform for property upper: unsupported function in transform: toUpper',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{upper}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('unsupported transform for property len: unsupported function in transform: length',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{len}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+function <<test.Test>> meta::relational::m2mSql::tests::testLikePatternMustBeAPlainLiteral():Boolean[1]
+{
+  assertEquals('unsupported transform for property wild: startsWith is only translated for a literal pattern without _, % or \\',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{wild}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('unsupported transform for property byName: contains is only translated for a literal pattern without _, % or \\',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{byName}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testSubstringIsNotTranslatable():Boolean[1]

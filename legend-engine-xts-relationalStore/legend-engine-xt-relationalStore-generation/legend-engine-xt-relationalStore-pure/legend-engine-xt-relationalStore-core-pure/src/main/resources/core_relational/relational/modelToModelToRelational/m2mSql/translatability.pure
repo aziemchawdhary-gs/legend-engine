@@ -376,15 +376,20 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:V
       // taking a collection (`plus`, `times`) holds its operands as the values of one InstanceValue, so
       // those are checked like any other operand.
          | if($i.genericType->isNotEmpty() && $i.genericType.rawType->isNotEmpty() && $i.genericType.rawType->toOne()->instanceOf(PrimitiveType),
-         | $i.values->evaluateAndDeactivate()->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->map(v | $v->meta::relational::m2mSql::explainUntranslatable($whitelist))->first(),
+         | if($i.values->evaluateAndDeactivate()->exists(v | !$v->instanceOf(ValueSpecification) && !$v->type()->in(meta::relational::m2mSql::provenPrimitiveTypes())),
+              | 'literal type not yet translated',
+              | $i.values->evaluateAndDeactivate()->filter(v | $v->instanceOf(ValueSpecification))->cast(@ValueSpecification)->map(v | $v->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()),
          | 'unsupported literal in transform'
         )),
     sfe:SimpleFunctionExpression[1] |
       // An enumeration-typed source property needs no special casing: the synthetic source store
       // extracts it as VARCHAR. An enumeration *transformer* is a different thing, handled by the caller.
       let params = $sfe.parametersValues->evaluateAndDeactivate();
+      let operands = meta::relational::m2mSql::explainUntranslatableOperands($sfe.func, $sfe.functionName->orElse('function'), $params);
       if(!($sfe.func->instanceOf(Property) || $sfe.func->in($whitelist)),
          | 'unsupported function in transform: ' + $sfe.functionName->orElse($sfe.func->elementToPath()),
+         | if($operands->isNotEmpty(),
+         | $operands,
          // pureToSQLQuery asserts on an equality with a to-many side rather than translating it.
          | if(($sfe.func == equal_Any_MANY__Any_MANY__Boolean_1_) && $params->exists(p | !$p.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
               | 'equality over a collection is not translated',
@@ -397,7 +402,7 @@ function <<access.private>> meta::relational::m2mSql::explainUntranslatable(vs:V
                    | $params->map(p | $p->meta::relational::m2mSql::explainUntranslatable($whitelist))->first()
                   )
              )
-        );,
+        ));,
     a:ValueSpecification[1] |
       'unsupported expression in transform'
   ]);
@@ -576,17 +581,52 @@ function meta::relational::m2mSql::sqlTranslatableFunctionWhitelist():Function<A
     isEmpty_Any_$0_1$__Boolean_1_,
     isNotEmpty_Any_MANY__Boolean_1_,
     isNotEmpty_Any_$0_1$__Boolean_1_,
-    // substring is not here: the DuckDB dialect renders it with SQL's 1-based start and a length, where
-    // Pure has a 0-based start and an exclusive end (pinned by the stringFunctionsUnsupported parity case).
-    toUpper_String_1__String_1_,
-    toLower_String_1__String_1_,
-    length_String_1__Integer_1_,
+    // Not here: substring (DuckDB renders it 1-based with a length; Pure is 0-based with an exclusive
+    // end), toUpper/toLower (Java maps ß to SS and follows the JVM locale) and length (Java counts
+    // UTF-16 units). Pinned by the stringFunctionsUnsupported and caseMappingAndLength parity cases.
     replace_String_1__String_1__String_1__String_1_,
     startsWith_String_1__String_1__Boolean_1_,
     endsWith_String_1__String_1__Boolean_1_,
     contains_String_1__String_1__Boolean_1_,
     toString_Any_1__String_1_
   ];
+}
+
+// Whitelisted functions whose SQL rendering only matches the Java path for some operands. The LIKE
+// that startsWith/endsWith/contains render to escapes `_` and `%` with a backslash but declares no
+// ESCAPE character, and takes its pattern as quoted text; DuckDB's replace with an empty search string
+// leaves the input unchanged where Java inserts between every character; DuckDB prints a DOUBLE with
+// an exponent where Java does not; and toOne of an absent value is an error on the Java path, a NULL in SQL.
+function <<access.private>> meta::relational::m2mSql::explainUntranslatableOperands(func:Function<Any>[1], name:String[1], params:ValueSpecification[*]):String[0..1]
+{
+  if($func->in([startsWith_String_1__String_1__Boolean_1_, endsWith_String_1__String_1__Boolean_1_, contains_String_1__String_1__Boolean_1_])
+       && !$params->at(1)->meta::relational::m2mSql::stringLiteral()->exists(p | !$p->contains('_') && !$p->contains('%') && !$p->contains('\\')),
+     | $name + ' is only translated for a literal pattern without _, % or \\',
+     | if($func->in([isEmpty_Any_MANY__Boolean_1_, isEmpty_Any_$0_1$__Boolean_1_, isNotEmpty_Any_MANY__Boolean_1_, isNotEmpty_Any_$0_1$__Boolean_1_])
+            && !$params->at(0).genericType.rawType->exists(t | $t->instanceOf(PrimitiveType) || $t->instanceOf(Enumeration)),
+          | $name + ' of a class-typed value is not translated',
+          | if(($func == toString_Any_1__String_1_) && !$params->at(0).genericType.rawType->exists(t | $t == Integer),
+               | 'toString is only translated for an Integer',
+               | if(($func == replace_String_1__String_1__String_1__String_1_) && !$params->at(1)->meta::relational::m2mSql::stringLiteral()->exists(p | $p->length() > 0),
+                    | 'replace is only translated for a non-empty literal search string',
+                    | if(($func == toOne_T_MANY__T_1_) && ($params->at(0).multiplicity->getLowerBound() == 0),
+                         | 'toOne of a possibly-empty value is not translated',
+                         | []
+                        )
+                   )
+              )
+         )
+    );
+}
+
+function <<access.private>> meta::relational::m2mSql::stringLiteral(vs:ValueSpecification[1]):String[0..1]
+{
+  $vs->match(
+  [
+    i:InstanceValue[1] | let values = $i.values->evaluateAndDeactivate();
+                         if(($values->size() == 1) && $values->toOne()->instanceOf(String), | $values->toOne()->cast(@String), | []);,
+    v:ValueSpecification[1] | []
+  ]);
 }
 
 // Boolean and comparison logic, admitted in filters only (see explainUntranslatableFilterExpression).

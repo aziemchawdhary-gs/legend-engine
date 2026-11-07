@@ -415,6 +415,12 @@ function <<access.private>> meta::relational::m2mSql::nullSafeFilter(vs:ValueSpe
                         booleanCall(and_Boolean_1__Boolean_1__Boolean_1_, 'and', [$a->isEmptyCall(), $b->isEmptyCall()])->zeroParameterLambdaValue(Boolean),
                         $rebuilt->zeroParameterLambdaValue(Boolean)]);,
          | $rebuilt);,
+    // An `if` holds its branches as lambdas in an InstanceValue; an equality there is a value too.
+    i:InstanceValue[1] | ^$i(values = $i.values->evaluateAndDeactivate()->map(x | $x->match([
+                           l:LambdaFunction<Any>[1] | ^$l(expressionSequence = $l.expressionSequence->evaluateAndDeactivate()->map(e | $e->nullSafeFilter())),
+                           e:ValueSpecification[1]  | $e->nullSafeFilter(),
+                           a:Any[1]                 | $a
+                         ]))),
     v:ValueSpecification[1] | $v
   ]);
 }
