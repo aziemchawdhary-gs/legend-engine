@@ -1287,7 +1287,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfComputedCol
 {
   let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::explodeComputed::TestMapping, meta::relational::m2mSql::tests::explodeMapping::Tag,
                  #{meta::relational::m2mSql::tests::explodeMapping::Tag{name}}#->cast(@RootGraphFetchTree<Any>));
-  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection', $result.reason->orElse('<none>'));
+  assertEquals('explode property mapping is not a single source navigation to a String, Integer or Float collection', $result.reason->orElse('<none>'));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testTwoExplodeMappingsAreNotTranslatable():Boolean[1]
@@ -1352,16 +1352,16 @@ function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterOnCollecti
   assertEmpty($rewritten);
 }
 
-// FLOAT[] is 32-bit in DuckDB; a Float leaf is rejected for its type before the explode shape is looked at.
-function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfFloatCollectionIsNotTranslatable():Boolean[1]
+// A Float explode unnests as DOUBLE[], like the scalar Float extract.
+function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfFloatCollectionIsTranslatable():Boolean[1]
 {
-  assertEquals('property type not yet translated: amount',
+  assertEquals('<translatable>',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::ExplodeFloatMapping, #{meta::relational::m2mSql::tests::review::Target{amount}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testExplodeOfScalarIsNotTranslatable():Boolean[1]
 {
-  assertEquals('explode property mapping is not a single source navigation to a String or Integer collection',
+  assertEquals('explode property mapping is not a single source navigation to a String, Integer or Float collection',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::ExplodeScalarMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
@@ -1380,12 +1380,12 @@ function <<test.Test>> meta::relational::m2mSql::tests::testComputedPropertyOnNe
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::NestedComputedMapping, #{meta::relational::m2mSql::tests::review::Outer{inner{label}}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
-// Float, Decimal and the date types have no parity case yet: how DuckDB extracts and serializes them
-// (32-bit floats, DECIMAL(18,3), its own timestamp text) is not established to match the Java path.
+// Decimal and the date types have no parity case yet: how DuckDB extracts and serializes them (Decimal
+// parsed as a double, its own timestamp text) is not established to match the Java path. Float is.
 function <<test.Test>> meta::relational::m2mSql::tests::testUnprovenScalarTypesAreNotTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::scalarTypes::TestMapping;
-  assertEquals('property type not yet translated: f',  meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{f}}#->cast(@RootGraphFetchTree<Any>)));
+  assertEquals('<translatable>',                      meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{f}}#->cast(@RootGraphFetchTree<Any>)));
   assertEquals('property type not yet translated: d',  meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{d}}#->cast(@RootGraphFetchTree<Any>)));
   assertEquals('property type not yet translated: sd', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{sd}}#->cast(@RootGraphFetchTree<Any>)));
   assertEquals('property type not yet translated: dt', meta::relational::m2mSql::tests::reviewReason($mapping, #{meta::relational::m2mSql::tests::scalarTypes::Item{dt}}#->cast(@RootGraphFetchTree<Any>)));

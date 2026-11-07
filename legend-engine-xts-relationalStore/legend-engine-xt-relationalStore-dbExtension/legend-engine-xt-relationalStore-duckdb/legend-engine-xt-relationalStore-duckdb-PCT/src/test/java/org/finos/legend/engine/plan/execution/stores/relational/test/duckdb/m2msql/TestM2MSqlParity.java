@@ -1703,6 +1703,75 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"addresses\":[{\"street\":\"b\",\"zip\":2},{\"street\":\"a\",\"zip\":null},{\"street\":\"b\",\"zip\":2}]},{\"name\":\"Tim\",\"addresses\":[]},{\"name\":\"Joe\",\"addresses\":[]}]}");
     }
 
+    // Float values, a Float computed from Integers, and a Float collection, over values whose text form
+    // differs between number printers: shortest round trip, exponent, negative zero, integral values.
+    private static final String FLOATS_GRAMMAR =
+            "Class m2msql::floats::Item\n" +
+            "{\n" +
+            "   price: Float[1];\n" +
+            "   ratio: Float[1];\n" +
+            "   prices: Float[*];\n" +
+            "}\n" +
+            "Class m2msql::floats::S_Item\n" +
+            "{\n" +
+            "   price: Float[1];\n" +
+            "   a: Integer[1];\n" +
+            "   b: Integer[1];\n" +
+            "   prices: Float[*];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::floats::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::floats::S_Item\n" +
+            "      price: $src.price,\n" +
+            "      ratio: $src.a / $src.b,\n" +
+            "      prices: $src.prices\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::floats::S_Item;\n" +
+            "  url: 'data:application/json,[{\"price\":0.1,\"a\":1,\"b\":3,\"prices\":[0.30000000000000004,1234567.891]},{\"price\":1e-7,\"a\":2,\"b\":4,\"prices\":[-0.0,100.0]},{\"price\":100.0,\"a\":10,\"b\":4}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String FLOATS_QUERY =
+            "|m2msql::floats::Item.all()->graphFetch(#{m2msql::floats::Item{price,ratio,prices}}#)->serialize(#{m2msql::floats::Item{price,ratio,prices}}#)";
+
+    @Test
+    void floatValues()
+    {
+        assertParity("floatValues", FLOATS_GRAMMAR, FLOATS_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"price\":0.1,\"ratio\":0.3333333333333333,\"prices\":[0.30000000000000004,1234567.891]},{\"price\":1.0E-7,\"ratio\":0.5,\"prices\":[-0.0,100.0]},{\"price\":100.0,\"ratio\":2.5,\"prices\":[]}]}");
+    }
+
+    // One document per element of a Float collection.
+    @Test
+    void floatExplode()
+    {
+        assertParity("floatExplode",
+                FLOATS_GRAMMAR.replace("   price: Float[1];\n   ratio: Float[1];\n   prices: Float[*];\n", "   price: Float[1];\n").replace("      price: $src.price,\n      ratio: $src.a / $src.b,\n      prices: $src.prices\n", "      price* : $src.prices\n"),
+                "|m2msql::floats::Item.all()->graphFetch(#{m2msql::floats::Item{price}}#)->serialize(#{m2msql::floats::Item{price}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"price\":0.30000000000000004},{\"price\":1234567.891},{\"price\":-0.0},{\"price\":100.0}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;

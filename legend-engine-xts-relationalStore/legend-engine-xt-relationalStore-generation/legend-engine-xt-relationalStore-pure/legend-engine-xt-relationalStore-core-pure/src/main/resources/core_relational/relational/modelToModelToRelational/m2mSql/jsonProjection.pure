@@ -269,7 +269,8 @@ function <<access.private>> meta::relational::m2mSql::flattenTargetTree(setImpl:
                                       (
                                         columnName     = $path->joinStrings('__'),
                                         sourcePath     = '$.' + $expr->sourceJsonPath()->joinStrings('.'),
-                                        elementSqlType = $expr.genericType.rawType->toOne()->pureTypeToSemiStructuredExtractType()
+                                        // FLOAT[] is 32-bit in DuckDB; Float is a double, as in its scalar extract.
+                                        elementSqlType = if($expr.genericType.rawType == Float, | 'DOUBLE', | $expr.genericType.rawType->toOne()->pureTypeToSemiStructuredExtractType())
                                       )),
        | if($pt.subTrees->isNotEmpty() && !$pt.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
             | let nested   = nestedSetImplementation($pms, $pt, $mapping);

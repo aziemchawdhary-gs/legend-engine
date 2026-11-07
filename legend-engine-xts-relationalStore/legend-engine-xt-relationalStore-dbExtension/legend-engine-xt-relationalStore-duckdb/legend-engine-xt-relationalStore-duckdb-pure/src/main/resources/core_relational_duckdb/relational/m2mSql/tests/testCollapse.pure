@@ -135,7 +135,7 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::
 Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Product
 {
   name  : String[1];
-  price : Float[1];
+  price : Decimal[1];
 }
 
 Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Product
@@ -149,7 +149,7 @@ Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::filte
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::Product: Pure
   {
     ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::model::S_Product
-    ~filter $src.price > 1.5
+    ~filter $src.price > 1.5d
     name: $src.name
   }
 )
@@ -460,7 +460,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'expected collapsed SQL node, got: ' + $plan->meta::pure::executionPlan::toString::planToString($extensions));
 }
 
-// The Float is never serialized, only read by the mapping filter -- it still has to be extracted, and
+// The Decimal is never serialized, only read by the mapping filter -- it still has to be extracted, and
 // that extract is not yet proven, so the whole query stays on the Java path.
 function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::testUnprovenSourceTypeReadByFilterStaysOnJavaPath():Boolean[1]
 {
@@ -471,7 +471,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
                meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::sqlRuntime(S_Product),
                $extensions
              );
-  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filter over a Float source property must not be collapsed');
+  assert(!$plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasSqlNode(), | 'a filter over a Decimal source property must not be collapsed');
   assert($plan->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlCollapse::hasInMemoryNode(), | 'the Java in-memory graph fetch nodes must be left in place');
 }
 

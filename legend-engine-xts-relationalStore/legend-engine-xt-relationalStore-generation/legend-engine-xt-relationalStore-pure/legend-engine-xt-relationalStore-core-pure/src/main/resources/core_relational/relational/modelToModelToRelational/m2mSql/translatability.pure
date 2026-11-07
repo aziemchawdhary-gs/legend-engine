@@ -135,7 +135,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
           | if($transformerReasons->isNotEmpty(),
                | $transformerReasons,
                | if($propertyMappings->exists(pm | $pm.explodeProperty == true) && !$propertyMappings->at(0).transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isExplodableSourceCollection(),
-                    | ['explode property mapping is not a single source navigation to a String or Integer collection'],
+                    | ['explode property mapping is not a single source navigation to a String, Integer or Float collection'],
                     {|
                       // A Boolean-valued property may compare and combine conditions like a filter does.
                       // It cannot come out NULL where the Java path has false: jsonProjection.pure's
@@ -280,7 +280,7 @@ function <<access.private>> meta::relational::m2mSql::isExplodableSourceCollecti
         && ($sfe.parametersValues->evaluateAndDeactivate()->size() == 1)
         && $sfe.parametersValues->evaluateAndDeactivate()->toOne()->instanceOf(VariableExpression)
         && !$sfe.multiplicity->meta::pure::functions::meta::hasToOneUpperBound()
-        && $sfe.genericType.rawType->in([String, Integer]),
+        && $sfe.genericType.rawType->in([String, Integer, Float]),
     v:ValueSpecification[1] | false
   ]);
 }
