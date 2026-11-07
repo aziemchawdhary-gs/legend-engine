@@ -18,5 +18,9 @@
   {
     "case": "stringFunctionsUnsupported",
     "reason": "unsupported transform for property sub: unsupported function in transform: substring"
+  },
+  {
+    "case": "toManyComplexComputed",
+    "reason": "computed property street on a nested class mapping not yet translated"
   }
 ]

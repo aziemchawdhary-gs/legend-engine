@@ -1600,6 +1600,109 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":{\"sub\":\"nn\"}}");
     }
 
+    // To-many complex properties: repeated and partially-populated elements, an empty array and an
+    // absent key; a second level of to-many objects inside the elements.
+    private static final String TO_MANY_GRAMMAR =
+            "Class m2msql::toMany::Line\n" +
+            "{\n" +
+            "   text: String[1];\n" +
+            "}\n" +
+            "Class m2msql::toMany::Address\n" +
+            "{\n" +
+            "   street: String[1];\n" +
+            "   zip: Integer[0..1];\n" +
+            "   lines: m2msql::toMany::Line[*];\n" +
+            "}\n" +
+            "Class m2msql::toMany::Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   addresses: m2msql::toMany::Address[*];\n" +
+            "}\n" +
+            "Class m2msql::toMany::S_Line\n" +
+            "{\n" +
+            "   text: String[1];\n" +
+            "}\n" +
+            "Class m2msql::toMany::S_Address\n" +
+            "{\n" +
+            "   street: String[1];\n" +
+            "   zip: Integer[0..1];\n" +
+            "   lines: m2msql::toMany::S_Line[*];\n" +
+            "}\n" +
+            "Class m2msql::toMany::S_Person\n" +
+            "{\n" +
+            "   name: String[1];\n" +
+            "   addresses: m2msql::toMany::S_Address[*];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::toMany::Person: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::toMany::S_Person\n" +
+            "      name: $src.name,\n" +
+            "      addresses: $src.addresses\n" +
+            "   }\n" +
+            "   *m2msql::toMany::Address: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::toMany::S_Address\n" +
+            "      street: ${STREET},\n" +
+            "      zip: $src.zip,\n" +
+            "      lines: $src.lines\n" +
+            "   }\n" +
+            "   *m2msql::toMany::Line: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::toMany::S_Line\n" +
+            "      text: $src.text\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::toMany::S_Person;\n" +
+            "  url: 'data:application/json,[{\"name\":\"Jane\",\"addresses\":[{\"street\":\"B\",\"zip\":2,\"lines\":[{\"text\":\"x\"},{\"text\":\"y\"}]},{\"street\":\"A\",\"lines\":[]},{\"street\":\"B\",\"zip\":2}]},{\"name\":\"Tim\",\"addresses\":[]},{\"name\":\"Joe\"}]';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String TO_MANY_QUERY = "|m2msql::toMany::Person.all()->graphFetch(#{m2msql::toMany::Person{name,addresses{street,zip}}}#)->serialize(#{m2msql::toMany::Person{name,addresses{street,zip}}}#)";
+
+    private static final String TO_MANY_NESTED_QUERY = "|m2msql::toMany::Person.all()->graphFetch(#{m2msql::toMany::Person{name,addresses{street,lines{text}}}}#)->serialize(#{m2msql::toMany::Person{name,addresses{street,lines{text}}}}#)";
+
+    @Test
+    void toManyComplex()
+    {
+        assertParity("toManyComplex", TO_MANY_GRAMMAR.replace("${STREET}", "$src.street"), TO_MANY_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"addresses\":[{\"street\":\"B\",\"zip\":2},{\"street\":\"A\",\"zip\":null},{\"street\":\"B\",\"zip\":2}]},{\"name\":\"Tim\",\"addresses\":[]},{\"name\":\"Joe\",\"addresses\":[]}]}");
+    }
+
+    @Test
+    void toManyComplexNested()
+    {
+        assertParity("toManyComplexNested", TO_MANY_GRAMMAR.replace("${STREET}", "$src.street"), TO_MANY_NESTED_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"addresses\":[{\"street\":\"B\",\"lines\":[{\"text\":\"x\"},{\"text\":\"y\"}]},{\"street\":\"A\",\"lines\":[]},{\"street\":\"B\",\"lines\":[]}]},{\"name\":\"Tim\",\"addresses\":[]},{\"name\":\"Joe\",\"addresses\":[]}]}");
+    }
+
+    // A computed leaf inside an element: below the root only plain navigations are translated.
+    @Test
+    void toManyComplexComputed()
+    {
+        assertParity("toManyComplexComputed", TO_MANY_GRAMMAR.replace("${STREET}", "$src.street->toLower()"), TO_MANY_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"name\":\"Jane\",\"addresses\":[{\"street\":\"b\",\"zip\":2},{\"street\":\"a\",\"zip\":null},{\"street\":\"b\",\"zip\":2}]},{\"name\":\"Tim\",\"addresses\":[]},{\"name\":\"Joe\",\"addresses\":[]}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;

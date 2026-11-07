@@ -129,7 +129,47 @@ Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model
   notBossInEu : Boolean[1];
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Stop
+{
+  city : String[1];
+  days : Integer[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Trip
+{
+  name  : String[1];
+  stops : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Stop[*];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Stop
+{
+  city : String[1];
+  days : Integer[0..1];
+}
+
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Trip
+{
+  name  : String[1];
+  stops : meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Stop[*];
+}
+
 ###Mapping
+Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::toManyMapping
+(
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Trip: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Trip
+    name: $src.name,
+    stops: $src.stops
+  }
+  *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Stop: Pure
+  {
+    ~src meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::S_Stop
+    city: $src.city,
+    days: $src.days
+  }
+)
+
 Mapping meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::negatedBooleanMapping
 (
   *meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::model::Staff: Pure
@@ -368,4 +408,15 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let q       = buildM2MSqlQuery($setImpl, #{Staff {notBossInEu}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
   assertEquals('select json_object(\'notBossInEu\', "m2m_sub"."notBossInEu") as "doc" from (select not (case when (json_extract_string("root".data, \'$.title\') is null or \'Boss\' is null) then (json_extract_string("root".data, \'$.title\') is null and \'Boss\' is null) else json_extract_string("root".data, \'$.title\') = \'Boss\' end and json_extract_string("root".data, \'$.region\') = \'EU\') as "notBossInEu" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+}
+
+// The inner query carries the array as text; the outer document maps each element to an object with
+// list_transform, reading the element's leaves by typed extract, and an absent array becomes [].
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testToManyComplexM2MSqlQuery():Boolean[1]
+{
+  let mapping = meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::toManyMapping;
+  let setImpl = $mapping->meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::setImplementationFor(Trip);
+  let q       = buildM2MSqlQuery($setImpl, #{Trip {name, stops {city, days}}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
+
+  assertEquals('select json_object(\'name\', "m2m_sub"."name", \'stops\', coalesce(to_json(list_transform(cast(cast("m2m_sub"."stops" as JSON) as JSON[]), m2m_e1 -> json_object(\'city\', json_extract_string(m2m_e1, \'$.city\'), \'days\', cast(json_extract(m2m_e1, \'$.days\') as BIGINT)))), cast(\'[]\' as JSON))) as "doc" from (select json_extract_string("root".data, \'$.name\') as "name", json_extract_string("root".data, \'$.stops\') as "stops" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }

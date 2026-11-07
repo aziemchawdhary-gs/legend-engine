@@ -306,6 +306,10 @@ function <<access.private>> meta::relational::functions::sqlQueryToString::duckD
     dynaFnToSql('mapConcatenate',         $allStates,           ^ToSql(format='map_concat(%s, %s)')),
     dynaFnToSql('array_flatten',          $allStates,            ^ToSql(format='flatten(%s)')),
     dynaFnToSql('jsonObject',             $allStates,            ^ToSql(format='json_object(%s)', transform={p:String[*] | $p->joinStrings(', ')})),
+    // M2M SQL: one JSON object per element of a JSON array held as text; the variable name comes in as a
+    // literal and is emitted bare. An absent array (NULL) serializes as [], as on the Java path.
+    dynaFnToSql('m2mElement',             $allStates,            ^ToSql(format='%s', transform={p:String[1] | $p->replace('\'', '')})),
+    dynaFnToSql('m2mElementArray',        $allStates,            ^ToSql(format='coalesce(to_json(list_transform(cast(cast(%s as JSON) as JSON[]), %s -> %s)), cast(\'[]\' as JSON))', transform={p:String[3] | [$p->at(0), $p->at(1)->replace('\'', ''), $p->at(2)]})),
     dynaFnToSql('jsonArray',              $allStates,            ^ToSql(format='json_array(%s)', transform={p:String[*] | $p->joinStrings(', ')})),
     // dynaFnToSql('toTimestamp',            $allStates,            ^ToSql(format='%s', transform={p:String[2] | $p->transformToTimestampH2()})),
     dynaFnToSql('weekOfYear',             $allStates,            ^ToSql(format='week(%s)')),

@@ -171,6 +171,11 @@ Class meta::relational::m2mSql::tests::strings::S_Item
   name: String[1];
 }
 
+Class meta::relational::m2mSql::tests::toManyFromOne::S_Person
+{
+  address: meta::relational::m2mSql::tests::toManyComplex::S_Address[0..1];
+}
+
 Enum meta::relational::m2mSql::tests::enumTransform::SourceColor
 {
   ROUGE, VERT, BLEU
@@ -699,6 +704,20 @@ Mapping meta::relational::m2mSql::tests::strings::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::toManyFromOne::TestMapping
+(
+  *meta::relational::m2mSql::tests::toManyComplex::Person: Pure
+  {
+    ~src meta::relational::m2mSql::tests::toManyFromOne::S_Person
+    addresses: $src.address
+  }
+  *meta::relational::m2mSql::tests::toManyComplex::Address: Pure
+  {
+    ~src meta::relational::m2mSql::tests::toManyComplex::S_Address
+    city: $src.city
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::localProperty::TestMapping
 (
   *meta::relational::m2mSql::tests::localProperty::Person: Pure
@@ -1043,15 +1062,21 @@ function <<test.Test>> meta::relational::m2mSql::tests::testPrimitiveCollectionI
 
 // canPlanM2MSql used to recurse into a to-many complex property and report it translatable, at which
 // point jsonProjection.pure's flat single-row projection would assert instead of falling back.
-function <<test.Test>> meta::relational::m2mSql::tests::testToManyComplexPropertyIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testToManyComplexPropertyIsTranslatable():Boolean[1]
 {
   let mapping = meta::relational::m2mSql::tests::toManyComplex::TestMapping;
   let setImpl = $mapping->rootClassMappingByClass(meta::relational::m2mSql::tests::toManyComplex::Person)->cast(@PureInstanceSetImplementation)->toOne();
   let tree    = #{meta::relational::m2mSql::tests::toManyComplex::Person{addresses{city}}}#->cast(@RootGraphFetchTree<Any>);
 
   let result = canPlanM2MSql($setImpl, $tree, $mapping);
-  assertFalse($result.translatable, | 'expected a to-many complex property to be rejected');
-  assert($result.reason->toOne()->contains('to-many'), | 'expected a to-many reason, got: ' + $result.reason->orElse(''));
+  assert($result.translatable, | 'expected a to-many complex property to be translatable, got: ' + $result.reason->orElse(''));
+}
+
+// Each element is mapped with list_transform over the source array, so the source has to be one.
+function <<test.Test>> meta::relational::m2mSql::tests::testToManyComplexFromToOneSourceIsNotTranslatable():Boolean[1]
+{
+  assertEquals('to-many complex property addresses is not mapped from a to-many source property',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::toManyFromOne::TestMapping, #{meta::relational::m2mSql::tests::toManyComplex::Person{addresses{city}}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
 function <<test.Test>> meta::relational::m2mSql::tests::testEnumerationTypedSourcePropertyIsTranslatable():Boolean[1]

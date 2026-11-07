@@ -92,25 +92,19 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
      // from an identifier, so `a"b` and `ab` would land on the same column.
      | if($propertyTree.alias->isNotEmpty() && $propertyTree.alias->toOne()->contains('"'),
           | [('alias containing a double quote not yet translated: ' + $propertyTree.alias->toOne())],
-     // A to-many complex property needs one JSON object per source element; the flat single-row
-     // projection in jsonProjection.pure cannot express that and asserts rather than falling back,
-     // so it has to be rejected here instead.
-     | if($propertyTree.subTrees->isNotEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
-          | ['to-many complex property not yet translated'],
           // A primitive leaf is serialized from its SQL value; only the types the parity corpus proves
           // serialize as the Java path does (see isExtractableSourceType) are let through. This also
           // covers a Float computed from Integers (`divide`).
           | if($propertyTree.subTrees->isEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(PrimitiveType) && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenPrimitiveTypes()),
                | [('property type not yet translated: ' + $propertyTree.property.name->toOne())],
-          // A primitive collection is extracted as a typed list; only the element types the parity corpus
-          // proves (sourceSynthesis.pure's provenCollectionElementTypes) are let through.
-          | if($propertyTree.subTrees->isEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenCollectionElementTypes()),
-               | [('primitive collection element type not yet translated: ' + $propertyTree.property.name->toOne())],
-               | []
+               // A primitive collection keeps its elements' JSON types; only the element types the parity
+               // corpus proves (sourceSynthesis.pure's provenCollectionElementTypes) are let through.
+               | if($propertyTree.subTrees->isEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenCollectionElementTypes()),
+                    | [('primitive collection element type not yet translated: ' + $propertyTree.property.name->toOne())],
+                    | []
+                   )
               )
-             )
          )
-        )
     );
 }
 
@@ -163,6 +157,10 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                 // projection.
                                 if(!$propertyMappings->forAll(pm | $pm.transform.expressionSequence->evaluateAndDeactivate()->toOne()->meta::relational::m2mSql::isPlainSourceNavigation()),
                                    | [('complex property ' + $propertyTree.property.name->toOne() + ' is not a plain source navigation')],
+                                   // Each element is mapped with list_transform over the source array, so a to-many
+                                   // target needs a to-many source: one object read as a list fails at execution.
+                                   | if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && $propertyMappings->exists(pm | $pm.transform.expressionSequence->evaluateAndDeactivate()->toOne().multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
+                                        | [('to-many complex property ' + $propertyTree.property.name->toOne() + ' is not mapped from a to-many source property')],
                                    // A bare `$src` is a plain navigation with an empty path: the source object
                                    // the subtree is built from is the root document itself. sourceJsonPath then
                                    // yields no segments at all, and the presence column would read an empty JSON
@@ -177,6 +175,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
                                             );
                                         }
                                        )
+                                      )
                                   );
                               }
                              )
