@@ -863,6 +863,18 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"codes\":[1,2,3000000000,2]},{\"codes\":[]},{\"codes\":[]}]}");
     }
 
+    // A filter over a source collection stays on the Java path; in SQL it would read the collection as
+    // the text of its JSON array, for which [] is not empty.
+    @Test
+    void collectionFilter()
+    {
+        assertParity("collectionFilter",
+                INTEGER_COLLECTION_GRAMMAR.replace("   *m2msql::integerCollection::Item: Pure\n   {\n      ~src m2msql::integerCollection::S_Item\n", "   *m2msql::integerCollection::Item: Pure\n   {\n      ~src m2msql::integerCollection::S_Item\n      ~filter $src.codes->isEmpty()\n")
+                        .replace("${URL}", "[{\"codes\":[1]},{\"codes\":[]},{}]"),
+                "|m2msql::integerCollection::Item.all()->graphFetch(#{m2msql::integerCollection::Item{codes}}#)->serialize(#{m2msql::integerCollection::Item{codes}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"codes\":[]},{\"codes\":[]}]}");
+    }
+
     @Test
     void booleanCollection()
     {

@@ -718,6 +718,16 @@ Mapping meta::relational::m2mSql::tests::toManyFromOne::TestMapping
   }
 )
 
+Mapping meta::relational::m2mSql::tests::collectionFilter::TestMapping
+(
+  *meta::relational::m2mSql::tests::review::Target: Pure
+  {
+    ~src meta::relational::m2mSql::tests::review::S_Target
+    ~filter $src.tags->isEmpty()
+    text: $src.first
+  }
+)
+
 Mapping meta::relational::m2mSql::tests::localProperty::TestMapping
 (
   *meta::relational::m2mSql::tests::localProperty::Person: Pure
@@ -1339,7 +1349,7 @@ function <<test.Test>> meta::relational::m2mSql::tests::testRootFilterInsidePlus
 // pureToSQLQuery asserts on an equality with a to-many side, so it must not get that far.
 function <<test.Test>> meta::relational::m2mSql::tests::testEqualityOverCollectionIsNotTranslatable():Boolean[1]
 {
-  assertEquals('unsupported mapping filter: equality over a collection is not translated',
+  assertEquals('unsupported mapping filter: the filter reads a source collection',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::review::CollectionEqualityMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
 }
 
@@ -1444,4 +1454,12 @@ function <<test.Test>> meta::relational::m2mSql::tests::testSubstringIsNotTransl
 {
   assertEquals('unsupported transform for property sub: unsupported function in transform: substring',
                meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::strings::TestMapping, #{meta::relational::m2mSql::tests::strings::Item{sub}}#->cast(@RootGraphFetchTree<Any>)));
+}
+
+// A source collection is extracted as the text of its JSON array, so in SQL `isEmpty` would test that
+// text for NULL and see [] as not empty. A filter must not read a source collection at all.
+function <<test.Test>> meta::relational::m2mSql::tests::testFilterReadingASourceCollectionIsNotTranslatable():Boolean[1]
+{
+  assertEquals('unsupported mapping filter: the filter reads a source collection',
+               meta::relational::m2mSql::tests::reviewReason(meta::relational::m2mSql::tests::collectionFilter::TestMapping, #{meta::relational::m2mSql::tests::review::Target{text}}#->cast(@RootGraphFetchTree<Any>)));
 }

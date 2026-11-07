@@ -26,5 +26,9 @@
   {
     "case": "dateTimes",
     "reason": "property type not yet translated: seen"
+  },
+  {
+    "case": "collectionFilter",
+    "reason": "unsupported mapping filter: the filter reads a source collection"
   }
 ]

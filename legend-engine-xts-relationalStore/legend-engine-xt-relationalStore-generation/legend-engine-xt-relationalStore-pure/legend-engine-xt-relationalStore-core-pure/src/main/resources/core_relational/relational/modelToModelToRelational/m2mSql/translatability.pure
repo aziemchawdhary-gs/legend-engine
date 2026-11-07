@@ -56,7 +56,10 @@ function meta::relational::m2mSql::rootLevelReasons(setImpl:PureInstanceSetImple
           | ['mapping filter not yet translated'],
           {|
             let srcClass = $setImpl.srcClass->toOne()->cast(@Class<Any>);
-            let reason   = $setImpl->meta::relational::m2mSql::mappingFilterOver(meta::relational::m2mSql::m2mSqlSourceVariable($srcClass))->toOne()->meta::relational::m2mSql::explainUntranslatableFilterExpression();
+            let filter   = $setImpl->meta::relational::m2mSql::mappingFilterOver(meta::relational::m2mSql::m2mSqlSourceVariable($srcClass))->toOne();
+            // A source collection reaches the inner query as the text of its JSON array, which no filter
+            // function reads as a collection (`isEmpty` would see [] as not empty).
+            let reason   = if($filter->meta::relational::m2mSql::readsSourceCollection(), | 'the filter reads a source collection', | $filter->meta::relational::m2mSql::explainUntranslatableFilterExpression());
             if($reason->isEmpty(), | [], | ('unsupported mapping filter: ' + $reason->toOne()));
           }
          )
@@ -433,7 +436,7 @@ function meta::relational::m2mSql::rewriteTargetFilterToSource(filter:LambdaFunc
   let rewritten  = if(($parameters->size() != 1) || ($body->size() != 1),
                       | [],
                       | $body->toOne()->meta::relational::m2mSql::rewriteTargetExpression($parameters->at(0).name, $setImpl, $srcVar));
-  if($rewritten->isEmpty() || $rewritten->toOne()->meta::relational::m2mSql::explainUntranslatableFilterExpression()->isNotEmpty(),
+  if($rewritten->isEmpty() || $rewritten->toOne()->meta::relational::m2mSql::readsSourceCollection() || $rewritten->toOne()->meta::relational::m2mSql::explainUntranslatableFilterExpression()->isNotEmpty(),
      | [],
      | $rewritten);
 }
