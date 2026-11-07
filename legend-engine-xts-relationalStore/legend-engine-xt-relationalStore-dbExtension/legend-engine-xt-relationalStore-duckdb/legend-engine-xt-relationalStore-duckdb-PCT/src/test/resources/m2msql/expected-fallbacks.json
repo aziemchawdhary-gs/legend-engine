@@ -1,15 +1,11 @@
 [
   {
-    "case": "integerCollection",
-    "reason": "non-string primitive collection not yet translated: codes"
-  },
-  {
     "case": "rootFilterDeepNavigation",
     "reason": "root filter is not translatable to the source"
   },
   {
     "case": "multiplicityCoercion",
-    "reason": "collection property aliases is not mapped from a to-many String source property"
+    "reason": "collection property aliases is not mapped from a to-many source property of its own type"
   },
   {
     "case": "unmappedComplex",

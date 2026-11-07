@@ -1281,11 +1281,11 @@ function <<test.Test>> meta::relational::m2mSql::tests::testUnselectedExplodeMap
   assertEquals('explode property mapping is not selected as a leaf of the graph fetch tree', $result.reason->orElse('<none>'));
 }
 
-function <<test.Test>> meta::relational::m2mSql::tests::testNonStringPrimitiveCollectionIsNotTranslatable():Boolean[1]
+function <<test.Test>> meta::relational::m2mSql::tests::testIntegerCollectionIsTranslatable():Boolean[1]
 {
   let result = meta::relational::m2mSql::tests::explodeVerdict(meta::relational::m2mSql::tests::integerCollection::TestMapping, meta::relational::m2mSql::tests::integerCollection::Item,
                  #{meta::relational::m2mSql::tests::integerCollection::Item{codes}}#->cast(@RootGraphFetchTree<Any>));
-  assertEquals('non-string primitive collection not yet translated: codes', $result.reason->orElse('<none>'));
+  assertEquals('<translatable>', $result.reason->orElse('<translatable>'));
 }
 
 function meta::relational::m2mSql::tests::reviewReason(mapping:Mapping[1], tree:RootGraphFetchTree<Any>[1]):String[1]

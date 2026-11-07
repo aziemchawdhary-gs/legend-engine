@@ -839,7 +839,7 @@ public class TestM2MSqlParity
             "${CONNECTION_TYPE} test::conn\n" +
             "{\n" +
             "  class: m2msql::integerCollection::S_Item;\n" +
-            "  url: 'data:application/json,{\"codes\":[1,2,3]}';\n" +
+            "  url: 'data:application/json,${URL}';\n" +
             "}\n" +
             "\n" +
             "###Runtime\n" +
@@ -858,9 +858,27 @@ public class TestM2MSqlParity
     @Test
     void integerCollection()
     {
-        assertParity("integerCollection", INTEGER_COLLECTION_GRAMMAR,
+        assertParity("integerCollection", INTEGER_COLLECTION_GRAMMAR.replace("${URL}", "[{\"codes\":[1,2,3000000000,2]},{\"codes\":[]},{}]"),
                 "|m2msql::integerCollection::Item.all()->graphFetch(#{m2msql::integerCollection::Item{codes}}#)->serialize(#{m2msql::integerCollection::Item{codes}}#)",
-                "{\"builder\":{\"_type\":\"json\"},\"values\":{\"codes\":[1,2,3]}}");
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"codes\":[1,2,3000000000,2]},{\"codes\":[]},{\"codes\":[]}]}");
+    }
+
+    @Test
+    void booleanCollection()
+    {
+        assertParity("booleanCollection",
+                INTEGER_COLLECTION_GRAMMAR.replace("Integer[*]", "Boolean[*]").replace("${URL}", "[{\"codes\":[true,false,true]},{\"codes\":[]},{}]"),
+                "|m2msql::integerCollection::Item.all()->graphFetch(#{m2msql::integerCollection::Item{codes}}#)->serialize(#{m2msql::integerCollection::Item{codes}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"codes\":[true,false,true]},{\"codes\":[]},{\"codes\":[]}]}");
+    }
+
+    @Test
+    void stringCollectionShapes()
+    {
+        assertParity("stringCollectionShapes",
+                INTEGER_COLLECTION_GRAMMAR.replace("Integer[*]", "String[*]").replace("${URL}", "[{\"codes\":[\"b\",\"a\",\"b\"]},{\"codes\":[]},{}]"),
+                "|m2msql::integerCollection::Item.all()->graphFetch(#{m2msql::integerCollection::Item{codes}}#)->serialize(#{m2msql::integerCollection::Item{codes}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"codes\":[\"b\",\"a\",\"b\"]},{\"codes\":[]},{\"codes\":[]}]}");
     }
 
     // Nothing but the exploded leaf is selected, and its elements are not strings: the inner query has

@@ -102,11 +102,10 @@ function meta::relational::m2mSql::propertyShapeReasons(propertyTree:PropertyGra
           // covers a Float computed from Integers (`divide`).
           | if($propertyTree.subTrees->isEmpty() && $propertyTree.property.genericType.rawType->toOne()->instanceOf(PrimitiveType) && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenPrimitiveTypes()),
                | [('property type not yet translated: ' + $propertyTree.property.name->toOne())],
-          // A primitive collection is extracted as the text of its JSON array and re-parsed in the outer
-          // document. That extract is typed by the element, and only the VARCHAR one takes an array:
-          // `cast(json_extract(...) as INTEGER)` of `[1,2,3]` fails at execution, not at planning.
-          | if($propertyTree.subTrees->isEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($propertyTree.property.genericType.rawType != String),
-               | [('non-string primitive collection not yet translated: ' + $propertyTree.property.name->toOne())],
+          // A primitive collection is extracted as a typed list; only the element types the parity corpus
+          // proves (sourceSynthesis.pure's provenCollectionElementTypes) are let through.
+          | if($propertyTree.subTrees->isEmpty() && !$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && !$propertyTree.property.genericType.rawType->toOne()->in(meta::relational::m2mSql::provenCollectionElementTypes()),
+               | [('primitive collection element type not yet translated: ' + $propertyTree.property.name->toOne())],
                | []
               )
              )
@@ -194,7 +193,7 @@ function meta::relational::m2mSql::untranslatablePropertyReasons(setImpl:PureIns
 // query extracts each source property by that property's own shape:
 // - below the root a leaf is read by navigating the nested JSON object, and only a plain navigation is
 //   proven to read it as the Java path does (a computed nested leaf has no parity case yet);
-// - a collection leaf is the text of a JSON array, which only a to-many String source property yields;
+// - a collection leaf is a typed list, which only a to-many source property of the same type yields;
 // - a to-one leaf must not read a source collection at all (`$src.names->toOne()` renders as the array).
 // An exploded leaf is exempt: isExplodableSourceCollection has already pinned its shape.
 function <<access.private>> meta::relational::m2mSql::mappedLeafReasons(propertyMapping:PurePropertyMapping[1], propertyTree:PropertyGraphFetchTree[1], isRoot:Boolean[1]):String[*]
@@ -206,9 +205,9 @@ function <<access.private>> meta::relational::m2mSql::mappedLeafReasons(property
      | if(!$isRoot && !$transform->meta::relational::m2mSql::isPlainSourceNavigation(),
           | [('computed property ' + $name + ' on a nested class mapping not yet translated')],
           | if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(),
-               | if($transform->meta::relational::m2mSql::isPlainSourceNavigation() && !$transform.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($transform.genericType.rawType == String),
+               | if($transform->meta::relational::m2mSql::isPlainSourceNavigation() && !$transform.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($transform.genericType.rawType == $propertyTree.property.genericType.rawType),
                     | [],
-                    | [('collection property ' + $name + ' is not mapped from a to-many String source property')]
+                    | [('collection property ' + $name + ' is not mapped from a to-many source property of its own type')]
                    ),
                | if($transform->meta::relational::m2mSql::readsSourceCollection(),
                     | [('property ' + $name + ' reads a source collection')],
@@ -223,7 +222,7 @@ function <<access.private>> meta::relational::m2mSql::autoMappedLeafReasons(setI
 {
   let srcProperty = $setImpl.srcClass->toOne()->cast(@Class<Any>)->propertyByName($propertyTree.property.name->toOne());
   if(!$propertyTree.property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound() && ($srcProperty->isEmpty() || $srcProperty->toOne().multiplicity->meta::pure::functions::meta::hasToOneUpperBound()),
-     | [('collection property ' + $propertyTree.property.name->toOne() + ' is not mapped from a to-many String source property')],
+     | [('collection property ' + $propertyTree.property.name->toOne() + ' is not mapped from a to-many source property of its own type')],
      | []
     );
 }

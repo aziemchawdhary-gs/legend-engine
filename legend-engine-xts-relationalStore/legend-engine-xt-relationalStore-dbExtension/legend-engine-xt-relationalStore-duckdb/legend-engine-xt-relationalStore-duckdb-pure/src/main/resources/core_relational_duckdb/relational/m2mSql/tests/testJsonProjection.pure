@@ -300,7 +300,7 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
   let q       = buildM2MSqlQuery($setImpl, #{Item {tags}}#->cast(@RootGraphFetchTree<Any>), meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::testConnection(), relationalExtensions(), noDebug());
 
   assertEquals(meta::relational::tests::sqlQueryToString::duckDB::m2mSqlProjection::expectedSetupSqls(), $q.setupSqls);
-  assertEquals('select json_object(\'tags\', cast("m2m_sub"."tags" as JSON)) as "doc" from (select json_extract_string("root".data, \'$.tags\') as "tags" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
+  assertEquals('select json_object(\'tags\', coalesce(cast("m2m_sub"."tags" as JSON), cast(\'[]\' as JSON))) as "doc" from (select json_extract_string("root".data, \'$.tags\') as "tags" from m2m_src_0 as "root") as "m2m_sub"', $q.sqlQuery);
 }
 
 // An unmapped-but-auto-mappable target property has no transform lambda to inline, so the projection

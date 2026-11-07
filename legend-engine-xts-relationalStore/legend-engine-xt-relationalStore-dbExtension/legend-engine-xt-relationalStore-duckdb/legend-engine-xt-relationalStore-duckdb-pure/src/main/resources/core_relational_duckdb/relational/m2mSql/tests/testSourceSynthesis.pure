@@ -38,6 +38,11 @@ Enum meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcColour
   RED, GREEN
 }
 
+Class meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcCodes
+{
+  codes : Integer[*];
+}
+
 Class meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcItem
 {
   colour : meta::relational::tests::sqlQueryToString::duckDB::m2mSql::model::SrcColour[1];
@@ -100,4 +105,18 @@ function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql
               relationalExtensions()
             );
   assertEquals('select json_extract_string("root".data, \'$.colour\') as "colour" from m2m_src_0 as "root"', $sql);
+}
+
+// A collection is read as the text of its JSON array, so its elements keep their JSON type, and it is
+// one value per source row rather than one row per element.
+function <<test.Test>> meta::relational::tests::sqlQueryToString::duckDB::m2mSql::testIntegerCollectionSourceSynthesisSql():Boolean[1]
+{
+  let src = synthesizeSourceStore(SrcCodes, #{SrcCodes {codes}}#);
+  let sql = toSQLString(
+              |SrcCodes.all()->project([s | $s.codes], ['codes']),
+              $src.mapping,
+              DatabaseType.DuckDB,
+              relationalExtensions()
+            );
+  assertEquals('select json_extract_string("root".data, \'$.codes\') as "codes" from m2m_src_0 as "root"', $sql);
 }

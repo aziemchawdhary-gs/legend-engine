@@ -109,7 +109,12 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
                                         parameters = [
                                                        $jsonRead,
                                                        ^Literal(value = $property.name->toOne()),
-                                                       ^Literal(value = $returnType->pureTypeToSemiStructuredExtractType())
+                                                       // A collection is extracted as the text of its JSON array (VARCHAR), which the outer
+                                                       // document re-parses, so its elements keep their JSON types whatever the element type.
+                                                       // Not a typed list (`BIGINT[]`): the relational stack flattens a to-many extract of
+                                                       // that type into one row per element. Not SEMISTRUCTURED either: the loader stores a
+                                                       // missing key as JSON null, which only the text extract turns into SQL NULL.
+                                                       ^Literal(value = if($property.multiplicity->meta::pure::functions::meta::hasToOneUpperBound(), | $returnType->pureTypeToSemiStructuredExtractType(), | 'VARCHAR'))
                                                      ]
                                       )
        ),
@@ -146,6 +151,13 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
 function meta::relational::m2mSql::isExtractableSourceType(t:Type[1]):Boolean[1]
 {
   $t->instanceOf(Enumeration) || $t->in(meta::relational::m2mSql::provenPrimitiveTypes());
+}
+
+// The element types of a primitive collection the parity corpus proves: extracted as a typed list and
+// serialized back as a JSON array of the same values.
+function meta::relational::m2mSql::provenCollectionElementTypes():PrimitiveType[*]
+{
+  [String, Integer, Boolean];
 }
 
 function meta::relational::m2mSql::provenPrimitiveTypes():PrimitiveType[*]
