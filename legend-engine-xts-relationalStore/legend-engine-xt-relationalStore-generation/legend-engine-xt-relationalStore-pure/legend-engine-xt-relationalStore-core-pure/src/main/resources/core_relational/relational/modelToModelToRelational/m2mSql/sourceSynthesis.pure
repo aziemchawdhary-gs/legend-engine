@@ -145,8 +145,8 @@ function <<access.private>> meta::relational::m2mSql::buildSourcePropertyMapping
 
 // The source property types the collapse lets the synthetic store extract: the ones the parity corpus
 // proves read and serialize as the Java path does (Float as DOUBLE). pureTypeToSemiStructuredExtractType
-// knows more, but Decimal (parsed as a double by DuckDB's JSON reader) and the date types (DuckDB's own
-// timestamp text) are not established to match, so a query reading one falls back. The collapse checks the
+// knows more, but Decimal (parsed as a double by DuckDB's JSON reader) and DateTime (see below) are not
+// established to match, so a query reading one falls back. The collapse checks the
 // source tree against this before synthesis, which also keeps it clear of the `fail` below.
 function meta::relational::m2mSql::isExtractableSourceType(t:Type[1]):Boolean[1]
 {
@@ -160,9 +160,12 @@ function meta::relational::m2mSql::provenCollectionElementTypes():PrimitiveType[
   [String, Integer, Float, Boolean];
 }
 
+// DateTime is not here: the Java path keeps the input's own sub-second precision (05.123, 05, 05.123456)
+// and drops the zone, which a SQL timestamp reformat cannot reproduce. StrictDate prints as yyyy-MM-dd
+// on both paths.
 function meta::relational::m2mSql::provenPrimitiveTypes():PrimitiveType[*]
 {
-  [String, Integer, Float, Boolean];
+  [String, Integer, Float, Boolean, StrictDate];
 }
 
 function <<access.private>> meta::relational::m2mSql::pureTypeToSemiStructuredExtractType(t:Type[1]):String[1]

@@ -22,5 +22,9 @@
   {
     "case": "toManyComplexComputed",
     "reason": "computed property street on a nested class mapping not yet translated"
+  },
+  {
+    "case": "dateTimes",
+    "reason": "property type not yet translated: seen"
   }
 ]

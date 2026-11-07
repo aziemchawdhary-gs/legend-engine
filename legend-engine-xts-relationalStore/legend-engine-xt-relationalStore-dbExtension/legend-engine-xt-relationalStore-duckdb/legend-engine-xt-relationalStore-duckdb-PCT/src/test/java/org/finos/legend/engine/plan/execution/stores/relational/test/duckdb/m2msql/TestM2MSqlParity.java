@@ -1772,6 +1772,73 @@ public class TestM2MSqlParity
                 "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"price\":0.30000000000000004},{\"price\":1234567.891},{\"price\":-0.0},{\"price\":100.0}]}");
     }
 
+    private static final String DATES_GRAMMAR =
+            "Class m2msql::dates::Item\n" +
+            "{\n" +
+            "   born: StrictDate[1];\n" +
+            "   seen: DateTime[0..1];\n" +
+            "}\n" +
+            "Class m2msql::dates::S_Item\n" +
+            "{\n" +
+            "   born: StrictDate[1];\n" +
+            "   seen: DateTime[0..1];\n" +
+            "}\n" +
+            "\n" +
+            "###Mapping\n" +
+            "Mapping test::mapping\n" +
+            "(\n" +
+            "   *m2msql::dates::Item: Pure\n" +
+            "   {\n" +
+            "      ~src m2msql::dates::S_Item\n" +
+            "      born: $src.born,\n" +
+            "      seen: $src.seen\n" +
+            "   }\n" +
+            ")\n" +
+            "\n" +
+            "###Connection\n" +
+            "${CONNECTION_TYPE} test::conn\n" +
+            "{\n" +
+            "  class: m2msql::dates::S_Item;\n" +
+            "  url: '${URL}';\n" +
+            "}\n" +
+            "\n" +
+            "###Runtime\n" +
+            "Runtime test::runtime\n" +
+            "{\n" +
+            "  mappings: [test::mapping];\n" +
+            "  connections:\n" +
+            "  [\n" +
+            "    ModelStore:\n" +
+            "    [\n" +
+            "      id1: test::conn\n" +
+            "    ]\n" +
+            "  ];\n" +
+            "}\n";
+
+    private static final String DATES_QUERY =
+            "|m2msql::dates::Item.all()->graphFetch(#{m2msql::dates::Item{born,seen}}#)->serialize(#{m2msql::dates::Item{born,seen}}#)";
+
+    // A StrictDate prints as yyyy-MM-dd on both paths.
+    @Test
+    void strictDates()
+    {
+        assertParity("strictDates",
+                DATES_GRAMMAR.replace("${URL}", "data:application/json,[{\"born\":\"1990-05-17\"},{\"born\":\"2000-01-01\"}]"),
+                "|m2msql::dates::Item.all()->graphFetch(#{m2msql::dates::Item{born}}#)->serialize(#{m2msql::dates::Item{born}}#)",
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"born\":\"1990-05-17\"},{\"born\":\"2000-01-01\"}]}");
+    }
+
+    // DateTime stays on the Java path: it keeps the input's own sub-second precision (05.123, 05,
+    // 05.123456 for 05.123Z, 05Z, 05.123456Z), which a SQL timestamp reformat cannot reproduce.
+    @Test
+    void dateTimes()
+    {
+        assertParity("dateTimes",
+                DATES_GRAMMAR.replace("${URL}", "data:application/json,[{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05.123Z\"},{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05Z\"},{\"born\":\"2000-01-01\"}]"),
+                DATES_QUERY,
+                "{\"builder\":{\"_type\":\"json\"},\"values\":[{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05.123\"},{\"born\":\"1990-05-17\",\"seen\":\"2024-01-02T03:04:05\"},{\"born\":\"2000-01-01\",\"seen\":null}]}");
+    }
+
     private static Throwable rootCause(Throwable t)
     {
         Throwable cause = t;
